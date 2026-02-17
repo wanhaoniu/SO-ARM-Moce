@@ -19,7 +19,7 @@
 
 ## 2. 外观与结构展示（图片位预留）
 ### 2.1 模型总览
-![Model Overview](assets/images/4.JPG)
+![Model Overview](images/4.JPG)
 <!-- TODO: 模型总览图 -->
 
 ### 2.2 SOARM101 vs SOARM-Moce 对比图
