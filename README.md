@@ -2,7 +2,7 @@
 > 基于 SOARM101 的二次开发增强版机械臂：更高负载、更大工作空间、同等控制方式与精度体验  
 > **开源计划：2026 年 3 月**（代码/硬件资料将在开源日统一放出）
 
-![SOARM-Moce Model Overview](assets/images/overview.png)
+![SOARM-Moce Model Overview](images/1.JPG)
 <!-- TODO: 替换为你的“模型总览”图片路径，例如 docs/media/overview.jpg -->
 
 ---
@@ -19,15 +19,15 @@
 
 ## 2. 外观与结构展示（图片位预留）
 ### 2.1 模型总览
-![Model Overview](assets/images/overview.png)
+![Model Overview](assets/images/4.JPG)
 <!-- TODO: 模型总览图 -->
 
 ### 2.2 SOARM101 vs SOARM-Moce 对比图
-![SOARM101 vs SOARM-Moce Comparison](assets/images/compare.png)
+![SOARM101 vs SOARM-Moce Comparison](images/3.JPG)
 <!-- TODO: 对比图（建议包含：负载/工作空间/结构强化点） -->
 
 ### 2.3 核心部位特写（关键关节金属减速模组）
-![Key Module Close-up](assets/images/key_module.png)
+![Key Module Close-up](images/2.JPG)
 <!-- TODO: 核心部位特写（建议标注：关键关节、减速模组、安装位） -->
 
 ---
