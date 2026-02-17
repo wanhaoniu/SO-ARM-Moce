@@ -1,87 +1,90 @@
 # SOARM-Moce 🤖
-> 基于 SOARM101 的二次开发增强版机械臂：更高负载、更大工作空间、同等控制方式与精度体验  
-> **开源计划：2026 年 3 月**（代码/硬件资料将在开源日统一放出）
+> An enhanced robotic arm based on SOARM101: higher payload, larger workspace, and the same control workflow and precision experience  
+> **Open-source plan: March 2026** (code and hardware materials will be released on the open-source date)
+
+[English](README.md) | [中文](README_ZH.md)
 
 ![SOARM-Moce Model Overview](images/1.JPG)
-<!-- TODO: 替换为你的“模型总览”图片路径，例如 docs/media/overview.jpg -->
+<!-- TODO: Replace with your "model overview" image path, e.g. docs/media/overview.jpg -->
 
 ---
 
-## 1. 项目简介
-**SOARM-Moce** 是我们在 **SOARM101** 基础上进行的二次开发版本：在保持 **相同 5 自由度（DOF）架构** 与 **Python + ROS 控制方式** 不变的前提下，通过对关键关节引入**金属减速模组强化**，显著提升了承载能力与结构刚度，同时扩大了工作空间覆盖范围。
+## 1. Project Overview
+**SOARM-Moce** is our enhanced version built on top of **SOARM101**. While keeping the same **5-DOF architecture** and **Python + ROS control workflow**, we reinforce key joints with **metal reduction modules** to significantly improve payload capacity and structural stiffness, while also expanding workspace coverage.
 
-本项目面向：
-- 创客与开源硬件开发者（快速二次开发、功能扩展）
-- 教育/实验室教学（ROS/运动学/控制/视觉课程配套）
-- 轻量级应用与原型验证（抓取、摆放、交互展示等）
+This project is designed for:
+- Makers and open-source hardware developers (rapid secondary development and feature extensions)
+- Education and lab teaching (ROS/kinematics/control/vision course support)
+- Lightweight applications and prototyping (pick-and-place, interaction demos, etc.)
 
 ---
 
-## 2. 外观与结构展示（图片位预留）
-### 2.1 模型总览
+## 2. Appearance and Structure (Image Slots)
+### 2.1 Model Overview
 ![Model Overview](images/4.JPG)
-<!-- TODO: 模型总览图 -->
+<!-- TODO: Model overview image -->
 
-### 2.2 SOARM101 vs SOARM-Moce 对比图
+### 2.2 SOARM101 vs SOARM-Moce Comparison
 ![SOARM101 vs SOARM-Moce Comparison](images/3.JPG)
-<!-- TODO: 对比图（建议包含：负载/工作空间/结构强化点） -->
+<!-- TODO: Comparison image (recommended: payload/workspace/structural reinforcement points) -->
 
-### 2.3 核心部位特写（关键关节金属减速模组）
+### 2.3 Core Module Close-up (Metal Reduction Module on Key Joint)
 ![Key Module Close-up](images/2.JPG)
-<!-- TODO: 核心部位特写（建议标注：关键关节、减速模组、安装位） -->
+<!-- TODO: Core close-up (recommended labels: key joint, reduction module, mounting position) -->
 
 ---
 
-## 3. 升级亮点（相对 SOARM101）
-- **负载能力跃升**：通过关键关节金属减速模组强化，实现负载能力显著提升（实际实验获得）。
-- **工作空间扩大**：基于公开 URDF 仿真评估，工作空间面积提升接近 30%。
-- **结构刚度与稳定性增强**：强化结构带来更强抗扭与抗变形能力，提升系统稳定性。
-- **精度与控制习惯保持一致**：重复定位精度保持 1 mm，控制方式保持 Python + ROS，不改变上手成本。
-- **生态更完整**：兼容 **LeRobot** 上游生态，并扩展 **Moce 自有生态支持**。
+## 3. Key Upgrades (Compared to SOARM101)
+- **Major payload boost**: Reinforced key joints with metal reduction modules, resulting in a significant payload increase (validated by experiments).
+- **Larger workspace**: Based on public URDF simulation evaluation, workspace area increases by nearly 30%.
+- **Higher stiffness and stability**: Reinforced structure provides stronger torsion and deformation resistance, improving overall system stability.
+- **Same precision and control habits**: Repeatability remains 1 mm, and control stays Python + ROS, keeping the learning cost low.
+- **More complete ecosystem**: Compatible with the upstream **LeRobot** ecosystem and extended with **Moce-specific ecosystem support**.
 
 ---
 
-## 4. 核心指标对比（SOARM101 vs SOARM-Moce）
-> 以下数据整理自项目对比材料：负载为实验结果，工作空间相关为 URDF 仿真结果。
+## 4. Core Metrics Comparison (SOARM101 vs SOARM-Moce)
+> The following data is summarized from project comparison materials: payload values come from experiments, workspace-related values come from URDF simulation results.
 
-| 核心指标 | SOARM101 | SOARM-Moce | 变化 |
+| Metric | SOARM101 | SOARM-Moce | Change |
 |---|---:|---:|---:|
-| 额定最大负载 (kg) | 0.5 | 1.5 | **3×** 提升 |
-| 极限负载 (kg) | – | 2.0 | 更高承载冗余 |
-| 重复定位精度 (mm) | 1.0 | 1.0 | 保持一致 |
-| 最大水平工作半径 Rmax (mm) | 380.6 | 433.1 | +13.8% |
-| 最大三维可达距离 Dmax (mm) | 447.2 | 516.2 | +15.4% |
-| Z 轴最大高度 (mm) | 428.7 | 502.9 | +17.3% |
-| XY 工作空间面积 (m²) | 0.3255 | 0.4226 | +29.8% |
-| 结构材料 | 标准 3D 打印结构 | 强化 3D 打印 + 金属减速模组 | 刚度更强 |
-| 关键关节设计 | 常规驱动结构 | 双关节金属减速强化设计 | 扭矩放大 |
-| 自由度 (DOF) | 5 | 5 | 架构一致 |
-| 末端支持 | 通用末端接口 | 模块化定制末端接口 | 扩展更强 |
-| 控制方式 | Python + ROS | Python + ROS | 一致 |
-| 生态支持 | LeRobot | LeRobot 兼容 + Moce 生态 | 更完整 |
-| 模块化维护 | 标准结构维护 | 关键关节可升级替换 | 可维护性增强 |
+| Rated max payload (kg) | 0.5 | 1.5 | **3x** increase |
+| Limit payload (kg) | – | 2.0 | Higher payload headroom |
+| Repeatability (mm) | 1.0 | 1.0 | Unchanged |
+| Max horizontal reach Rmax (mm) | 380.6 | 433.1 | +13.8% |
+| Max 3D reach Dmax (mm) | 447.2 | 516.2 | +15.4% |
+| Max Z height (mm) | 428.7 | 502.9 | +17.3% |
+| XY workspace area (m²) | 0.3255 | 0.4226 | +29.8% |
+| Structural material | Standard 3D-printed structure | Reinforced 3D print + metal reduction modules | Higher stiffness |
+| Key joint design | Conventional drive structure | Dual-joint metal reduction reinforced design | Torque amplification |
+| Degrees of freedom (DOF) | 5 | 5 | Same architecture |
+| End-effector support | Generic end-effector interface | Modular custom end-effector interface | Better extensibility |
+| Control method | Python + ROS | Python + ROS | Same |
+| Ecosystem support | LeRobot | LeRobot compatible + Moce ecosystem | More complete |
+| Modular maintenance | Standard structure maintenance | Upgradable/replaceable key joints | Better maintainability |
 
 ---
 
-## 5. 仓库内容（开源后将补全）
-> **提示：本仓库将在 2026 年 3 月开源日补齐以下内容。**
+## 5. Repository Contents (To Be Completed After Open Source)
+> **Note: This repository will be completed on the open-source date in March 2026.**
 
-预计包含：
-- `hardware/`：BOM、结构件清单、加工/打印建议、装配说明
-- `urdf/`：URDF、网格模型、惯量/关节参数
-- `ros/`：ROS 包（launch、控制、示例）
-- `sdk/`：Python 控制接口、示例脚本、API 文档
-- `docs/`：校准流程、常见问题、开发指南
-- `examples/`：轨迹跟随、示教记录、抓取 demo（可选）
+Expected contents:
+- `hardware/`: BOM, structural part list, machining/printing recommendations, assembly instructions
+- `urdf/`: URDF files, mesh models, inertia/joint parameters
+- `ros/`: ROS packages (launch, control, examples)
+- `sdk/`: Python control interface, example scripts, API docs
+- `docs/`: Calibration workflow, FAQ, development guide
+- `examples/`: Trajectory following, teaching record, grasping demo (optional)
 
 ---
 
-## 6. 快速开始（占位：开源后补齐）
-### 6.1 环境要求
-- Ubuntu 20.04/22.04（推荐）或 macOS/Windows（部分功能可能受限）
+## 6. Quick Start (Placeholder: To Be Added After Open Source)
+### 6.1 Requirements
+- Ubuntu 20.04/22.04 (recommended) or macOS/Windows (some features may be limited)
 - Python 3.8+
-- ROS (Noetic/Humble 视发布版本确定)
+- ROS (Noetic/Humble, depending on release version)
 
-### 6.2 安装（占位）
+### 6.2 Installation (Placeholder)
 ```bash
-# TODO: 开源后提供 pip/rosdep/colcon 安装方式
+# TODO: pip/rosdep/colcon installation steps will be provided after open source
+```
