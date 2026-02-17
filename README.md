@@ -48,7 +48,7 @@ This project is designed for:
 
 | Metric | SOARM101 | SOARM-Moce | Change |
 |---|---:|---:|---:|
-| Rated max payload (kg) | 0.5 | 1.5 | **3x** increase |
+| Rated max payload (kg) | 0.3 | 1.5 | **3x** increase |
 | Limit payload (kg) | – | 2.0 | Higher payload headroom |
 | Repeatability (mm) | 1.0 | 1.0 | Unchanged |
 | Max horizontal reach Rmax (mm) | 380.6 | 433.1 | +13.8% |
