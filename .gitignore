@@ -1,4 +1,6 @@
-.DS_Store
-*.pyc
-SO-ARM-Moce/Software/Slave/recordings_local/
-Software/Slave/recordings_local/
+# SolidWorks files
+*.SLDPRT
+*.SLDASM
+*.sldprt
+*.sldasm
+~$*
