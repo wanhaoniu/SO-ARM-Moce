@@ -78,12 +78,51 @@
 
 ---
 
-## 6. 快速开始（占位：开源后补齐）
+## 6. 快速开始
 ### 6.1 环境要求
-- Ubuntu 20.04/22.04（推荐）或 macOS/Windows（部分功能可能受限）
-- Python 3.8+
-- ROS (Noetic/Humble 视发布版本确定)
+- 推荐 Ubuntu 20.04/22.04（主从串口与摄像头链路主要面向 Linux）
+- 推荐 Python 3.10（SDK 最低支持 Python 3.8）
+- 实机模式需要 1 套 Leader + 1 套 Follower，并准备可用串口（如 `/dev/ttyACM0`）
+- 网络端口：`6666/TCP`（控制）与 `6000/UDP`（摄像头推流，可选）
 
-### 6.2 安装（占位）
+### 6.2 安装依赖
+在仓库根目录执行：
 ```bash
-# TODO: 开源后提供 pip/rosdep/colcon 安装方式
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e ./sdk
+
+# 主从控制运行依赖
+pip install draccus opencv-python PyQt5 lerobot
+
+# 可选（仿真 / 3D 视图）
+pip install pybullet vtk
+```
+
+### 6.3 启动主从遥操作（实机）
+1. 在从臂侧设备启动服务端：
+```bash
+cd Software/Slave
+python3 main.py
+```
+2. 在主控 PC 启动客户端：
+```bash
+cd Software/Master
+python3 main.py --ip <从臂IP> --port 6666 --leader-port /dev/ttyACM0 --leader-id black_arm_leader
+```
+3. 内置命令包括：
+`savepos`、`goto`、`record`、`play`、`home`、`quit`
+
+注意：
+- 若摄像头目标 IP 或设备路径不同，请修改 `Software/Slave/main.py` 中的 `TARGET_PC_IP` 和 `CAM1_PATH`。
+- 标定文件位于 `Software/Master/calibration/...` 与 `Software/Slave/calibration/...`。
+- 若仅控制机械臂不看视频，可在主控端加 `--no-cam`。
+
+### 6.4 启动图形界面（可选）
+```bash
+cd Software/Master
+python3 gui.py
+```
+在 Settings 页面填写 IP/端口后点击 **Connect**。
+如有问题欢迎提交 issue。

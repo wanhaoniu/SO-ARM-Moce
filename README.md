@@ -65,7 +65,7 @@ This project is designed for:
 
 ---
 
-## 5. Repository Contents (To Be Completed After Open Source)
+## 5. Repository Contents (To Be Completed After Total Open Source)
 > **Note: This repository will be completed on the open-source date in March 2026.**
 
 Expected contents:
@@ -78,13 +78,51 @@ Expected contents:
 
 ---
 
-## 6. Quick Start (Placeholder: To Be Added After Open Source)
-### 6.1 Requirements
-- Ubuntu 20.04/22.04 (recommended) or macOS/Windows (some features may be limited)
-- Python 3.8+
-- ROS (Noetic/Humble, depending on release version)
+## 6. Quick Start
+### 6.1 Environment
+- Ubuntu 20.04/22.04 is recommended (master/slave serial + camera workflow is mainly Linux-oriented)
+- Python 3.10 recommended (SDK minimum: Python 3.8)
+- Real-arm mode needs one Leader + one Follower arm and valid serial ports (for example `/dev/ttyACM0`)
+- Network ports: `6666/TCP` (control) and `6000/UDP` (camera stream, optional)
 
-### 6.2 Installation (Placeholder)
+### 6.2 Install Dependencies
+From repo root:
 ```bash
-# TODO: pip/rosdep/colcon installation steps will be provided after open source
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e ./sdk
+
+# Master/Slave runtime
+pip install draccus opencv-python PyQt5 lerobot
+
+# Optional (simulation / 3D view)
+pip install pybullet vtk
 ```
+
+### 6.3 Start Leader-Follower Control (Real Hardware)
+1. Start slave server on the follower-side device:
+```bash
+cd Software/Slave
+python3 main.py
+```
+2. Start master client on your PC:
+```bash
+cd Software/Master
+python3 main.py --ip <slave_ip> --port 6666 --leader-port /dev/ttyACM0 --leader-id black_arm_leader
+```
+3. Built-in CLI commands include:
+`savepos`, `goto`, `record`, `play`, `home`, `quit`
+
+Notes:
+- If camera target IP or device path is different, update `TARGET_PC_IP` and `CAM1_PATH` in `Software/Slave/main.py`.
+- Calibration files are under `Software/Master/calibration/...` and `Software/Slave/calibration/...`.
+- Add `--no-cam` on master side if you only need arm control.
+
+### 6.4 Start GUI (Optional)
+```bash
+cd Software/Master
+python3 gui.py
+```
+Then configure IP/ports in the Settings page and click **Connect**.
+If you run into issues, feel free to open an issue.
