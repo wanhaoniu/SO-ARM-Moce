@@ -1,5 +1,14 @@
 # SOARM-Moce 🤖
 > 基于 SOARM101 的二次开发增强版机械臂：更高负载、更大工作空间、同等控制方式与精度体验  
+
+<p align="center">
+  <img src="images/moceai.jpg" alt="MoceAI" height="60">
+  <span style="font-size: 24px; margin: 0 15px;">&times;</span>
+  <img src="images/feetech.png" alt="Feetech" height="60">
+  <br>
+  <em>MoceAI 与 Feetech 联合开发</em>
+</p>
+
 > **开源计划：2026 年 3 月**（代码/硬件资料将在开源日统一放出）
 
 [English](README.md) | [中文](README_ZH.md)
@@ -13,13 +22,7 @@
 **SOARM-Moce** 是我们在 **SOARM101** 基础上进行的二次开发版本：在保持 **相同 5 自由度（DOF）架构** 与 **Python + ROS 控制方式** 不变的前提下，通过对关键关节引入**金属减速模组强化**，显著提升了承载能力与结构刚度，同时扩大了工作空间覆盖范围。
 
 ### 研发初衷
-我们最初是想给自己的 "mystery robot" 做一个 **affordable portable robotic arm**（经济实惠的便携式机械臂），但发现市场上没有可以满足的产品。因此，**MOCE Robotics** 在 SO-ARM 舵机供应商 **飞特 (Feetech)** 的支持下，联合发布了这款开源机械臂。
-
-<p align="left">
-  <img src="images/feetech.png" alt="飞特联名开发" height="50">
-  <br>
-  <em>飞特 Feetech 联名支持</em>
-</p>
+我们最初是想给自己的 "mystery robot" 做一个 **affordable portable robotic arm**（经济实惠的便携式机械臂），但发现市场上没有可以满足的产品。因此，**MoceAI** 在 SO-ARM 舵机供应商 **飞特 (Feetech)** 的支持下，联合发布了这款开源机械臂。
 
 本项目面向：
 - 创客与开源硬件开发者（快速二次开发、功能扩展）

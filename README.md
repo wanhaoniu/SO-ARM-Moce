@@ -1,5 +1,14 @@
 # SOARM-Moce 🤖
 > An enhanced robotic arm based on SOARM101: higher payload, larger workspace, and the same control workflow and precision experience  
+
+<p align="center">
+  <img src="images/moceai.jpg" alt="MoceAI" height="60">
+  <span style="font-size: 24px; margin: 0 15px;">&times;</span>
+  <img src="images/feetech.png" alt="Feetech" height="60">
+  <br>
+  <em>Jointly Developed by MoceAI & Feetech</em>
+</p>
+
 > **Open-source plan: March 2026** (code and hardware materials will be released on the open-source date)
 
 [English](README.md) | [中文](README_ZH.md)
@@ -13,13 +22,7 @@
 **SOARM-Moce** is our enhanced version built on top of **SOARM101**. While keeping the same **5-DOF architecture** and **Python + ROS control workflow**, we reinforce key joints with **metal reduction modules** to significantly improve payload capacity and structural stiffness, while also expanding workspace coverage.
 
 ### Development Motivation
-We initially set out to create an **affordable, portable robotic arm** for our "mystery robot" project but found no existing products on the market that met our requirements. Therefore, **MOCE Robotics**, with support from servo supplier **Feetech**, collaborated to develop and release this open-source robotic arm.
-
-<p align="left">
-  <img src="images/feetech.png" alt="Joint Development with Feetech" height="50">
-  <br>
-  <em>Jointly developed with Feetech support</em>
-</p>
+We initially set out to create an **affordable, portable robotic arm** for our "mystery robot" project but found no existing products on the market that met our requirements. Therefore, **MoceAI**, with support from servo supplier **Feetech**, collaborated to develop and release this open-source robotic arm.
 
 This project is designed for:
 - Makers and open-source hardware developers (rapid secondary development and feature extensions)
