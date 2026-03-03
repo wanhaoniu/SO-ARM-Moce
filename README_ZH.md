@@ -12,6 +12,15 @@
 ## 1. 项目简介
 **SOARM-Moce** 是我们在 **SOARM101** 基础上进行的二次开发版本：在保持 **相同 5 自由度（DOF）架构** 与 **Python + ROS 控制方式** 不变的前提下，通过对关键关节引入**金属减速模组强化**，显著提升了承载能力与结构刚度，同时扩大了工作空间覆盖范围。
 
+### 研发初衷
+我们最初是想给自己的 "mystery robot" 做一个 **affordable portable robotic arm**（经济实惠的便携式机械臂），但发现市场上没有可以满足的产品。因此，**MOCE Robotics** 在 SO-ARM 舵机供应商 **飞特 (Feetech)** 的支持下，联合发布了这款开源机械臂。
+
+<p align="left">
+  <img src="images/feetech.png" alt="飞特联名开发" height="50">
+  <br>
+  <em>飞特 Feetech 联名支持</em>
+</p>
+
 本项目面向：
 - 创客与开源硬件开发者（快速二次开发、功能扩展）
 - 教育/实验室教学（ROS/运动学/控制/视觉课程配套）
