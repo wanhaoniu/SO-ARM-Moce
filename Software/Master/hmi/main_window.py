@@ -1367,10 +1367,27 @@ class ArmControlGUI(QMainWindow):
             )
             self.speech_window.set_theme(self.current_theme)
             self.speech_window.closed.connect(self._on_speech_window_closed)
+            if hasattr(self.speech_window, "transcript_ready"):
+                self.speech_window.transcript_ready.connect(self._on_speech_transcript_ready)
+            if hasattr(self.speech_window, "transcript_failed"):
+                self.speech_window.transcript_failed.connect(self._on_speech_transcript_failed)
         return self.speech_window
 
     def _on_speech_window_closed(self):
         self._set_speech_btn_text(False)
+
+    def _on_speech_transcript_ready(self, text: str):
+        text = str(text or "").strip()
+        if text:
+            self.log(f"[Speech] {text}", "info")
+            self.statusBar().showMessage(f"Speech: {text[:80]}")
+
+    def _on_speech_transcript_failed(self, message: str):
+        msg = str(message or "").strip()
+        if not msg:
+            msg = "Speech recognition failed"
+        self.log(f"[Speech] {msg}", "error")
+        self.statusBar().showMessage(msg)
 
     def _is_speech_window_visible(self) -> bool:
         return self.speech_window is not None and self.speech_window.isVisible()
