@@ -12,7 +12,7 @@ import time
 import base64
 from functools import partial
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -1440,6 +1440,52 @@ class ArmControlGUI(QMainWindow):
         except Exception:
             return int(default)
 
+    def _tool_find_joint_index(self, joint_name: str) -> Optional[int]:
+        key = str(joint_name or "").strip().lower()
+        if not key:
+            return None
+        for i, name in enumerate(self.sim_joint_names):
+            if str(name).strip().lower() == key:
+                return i
+        for i, name in enumerate(self.sim_joint_names):
+            if key in str(name).strip().lower():
+                return i
+        return None
+
+    @staticmethod
+    def _tool_estimate_red_object_score(frame_bgr: Optional[np.ndarray]) -> Dict[str, float]:
+        if frame_bgr is None or not isinstance(frame_bgr, np.ndarray) or frame_bgr.size == 0:
+            return {"score": 0.0, "red_ratio": 0.0, "area_ratio": 0.0}
+        try:
+            hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+        except Exception:
+            return {"score": 0.0, "red_ratio": 0.0, "area_ratio": 0.0}
+
+        lower1 = np.array([0, 90, 50], dtype=np.uint8)
+        upper1 = np.array([10, 255, 255], dtype=np.uint8)
+        lower2 = np.array([160, 90, 50], dtype=np.uint8)
+        upper2 = np.array([179, 255, 255], dtype=np.uint8)
+        mask = cv2.inRange(hsv, lower1, upper1) | cv2.inRange(hsv, lower2, upper2)
+        kernel = np.ones((3, 3), dtype=np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+        total = float(mask.shape[0] * mask.shape[1]) if mask.ndim == 2 else float(mask.size)
+        if total <= 0.0:
+            return {"score": 0.0, "red_ratio": 0.0, "area_ratio": 0.0}
+        red_pixels = float(np.count_nonzero(mask))
+        red_ratio = red_pixels / total
+
+        contours_info = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = contours_info[-2] if len(contours_info) == 3 else contours_info[0]
+        area_ratio = 0.0
+        if contours:
+            area_ratio = max(float(cv2.contourArea(c)) / total for c in contours)
+
+        score = max(red_ratio * 12.0, area_ratio * 24.0)
+        score = float(max(0.0, min(1.0, score)))
+        return {"score": score, "red_ratio": float(red_ratio), "area_ratio": float(area_ratio)}
+
     def _tool_move_robot_arm_main_thread(self, payload: Dict[str, object]) -> Tuple[bool, Dict[str, object]]:
         if not self._sim_ready:
             return False, {"ok": False, "error": "simulation is not ready"}
@@ -1588,11 +1634,7 @@ class ArmControlGUI(QMainWindow):
     def _tool_set_gripper_main_thread(self, target: float) -> bool:
         if len(self.sim_q) == 0 or len(self._sim_limits) != len(self.sim_q):
             return False
-        idx = None
-        for i, name in enumerate(self.sim_joint_names):
-            if "gripper" in str(name).lower():
-                idx = i
-                break
+        idx = self._tool_find_joint_index("gripper")
         if idx is None:
             return False
         lo, hi = self._sim_limits[idx]
@@ -1601,6 +1643,181 @@ class ArmControlGUI(QMainWindow):
         self.sim_q = q_new
         self._update_sim_plot()
         return True
+
+    def _tool_set_gripper_tool_main_thread(self, payload: Dict[str, object]) -> Tuple[bool, Dict[str, object]]:
+        if len(self.sim_q) == 0 or len(self._sim_limits) != len(self.sim_q):
+            return False, {"ok": False, "error": "simulation joint state unavailable"}
+        idx = self._tool_find_joint_index("gripper")
+        if idx is None:
+            return False, {"ok": False, "error": "gripper joint not found"}
+
+        lo, hi = self._sim_limits[idx]
+        ratio = max(0.0, min(1.0, self._tool_to_float(payload.get("open_ratio", 1.0), 1.0)))
+        wait = bool(payload.get("wait", True))
+        q_target = float(lo) + (float(hi) - float(lo)) * float(ratio)
+        ok = self._tool_set_gripper_main_thread(q_target)
+        q_now = float(np.asarray(self.sim_q, dtype=float)[idx]) if len(self.sim_q) > idx else float(q_target)
+        span = float(hi) - float(lo)
+        ratio_now = 0.0 if abs(span) < 1e-8 else float(np.clip((q_now - float(lo)) / span, 0.0, 1.0))
+        result = {
+            "ok": bool(ok),
+            "message": "gripper moved" if ok else "gripper move failed",
+            "backend": f"main-thread-{self._sim_backend}",
+            "joint_name": str(self.sim_joint_names[idx]),
+            "wait": wait,
+            "open_ratio_target": float(ratio),
+            "open_ratio_actual": float(ratio_now),
+            "joint_position_rad": float(q_now),
+            "joint_limits_rad": [float(lo), float(hi)],
+        }
+        return bool(ok), result
+
+    def _tool_rotate_joint_main_thread(self, payload: Dict[str, object]) -> Tuple[bool, Dict[str, object]]:
+        if len(self.sim_q) == 0 or len(self._sim_limits) != len(self.sim_q):
+            return False, {"ok": False, "error": "simulation joint state unavailable"}
+        joint_name = str(payload.get("joint_name", "") or "").strip()
+        if not joint_name:
+            return False, {"ok": False, "error": "joint_name is required"}
+        idx = self._tool_find_joint_index(joint_name)
+        if idx is None:
+            return False, {"ok": False, "error": f"joint not found: {joint_name}"}
+
+        lo, hi = self._sim_limits[idx]
+        q_now = float(np.asarray(self.sim_q, dtype=float)[idx])
+        has_target = "target_deg" in payload and payload.get("target_deg") is not None
+        if has_target:
+            target_deg = self._tool_to_float(payload.get("target_deg", 0.0), math.degrees(q_now))
+            q_target = math.radians(target_deg)
+            delta_deg = math.degrees(q_target - q_now)
+        else:
+            delta_deg = self._tool_to_float(payload.get("delta_deg", 0.0), 0.0)
+            q_target = q_now + math.radians(delta_deg)
+            target_deg = math.degrees(q_target)
+        q_clipped = float(np.clip(q_target, float(lo), float(hi)))
+
+        q_new = np.asarray(self.sim_q, dtype=float).copy()
+        q_new[idx] = q_clipped
+        self.sim_q = q_new
+        self._update_sim_plot()
+
+        result = {
+            "ok": True,
+            "message": "joint rotated",
+            "backend": f"main-thread-{self._sim_backend}",
+            "joint_name": str(self.sim_joint_names[idx]),
+            "wait": bool(payload.get("wait", True)),
+            "requested_delta_deg": float(delta_deg),
+            "requested_target_deg": float(target_deg),
+            "actual_target_deg": float(math.degrees(q_clipped)),
+            "clipped": bool(abs(q_clipped - q_target) > 1e-8),
+            "joint_limits_deg": [float(math.degrees(lo)), float(math.degrees(hi))],
+        }
+        return True, result
+
+    def _tool_scan_for_object_main_thread(self, payload: Dict[str, object]) -> Tuple[bool, Dict[str, object]]:
+        if len(self.sim_q) == 0 or len(self._sim_limits) != len(self.sim_q):
+            return False, {"ok": False, "error": "simulation joint state unavailable"}
+        object_name = str(payload.get("object_name", "") or "").strip()
+        if not object_name:
+            return False, {"ok": False, "error": "object_name is required"}
+
+        joint_name = str(payload.get("joint_name", "wrist_roll") or "wrist_roll").strip()
+        idx = self._tool_find_joint_index(joint_name)
+        if idx is None:
+            idx = self._tool_find_joint_index("wrist_roll")
+        if idx is None:
+            return False, {"ok": False, "error": "scan joint not found (expected wrist_roll)"}
+
+        source = str(payload.get("source", "eye_in_hand") or "eye_in_hand").strip().lower()
+        if source not in ("eye_in_hand", "scene"):
+            source = "eye_in_hand"
+        width = max(160, min(1920, self._tool_to_int(payload.get("width", 960), 960)))
+        height = max(120, min(1080, self._tool_to_int(payload.get("height", 720), 720)))
+        sweep_range_deg = max(10.0, min(240.0, self._tool_to_float(payload.get("sweep_range_deg", 120.0), 120.0)))
+        step_deg = max(2.0, min(60.0, self._tool_to_float(payload.get("step_deg", 15.0), 15.0)))
+        return_to_start = bool(payload.get("return_to_start", False))
+
+        q_start = float(np.asarray(self.sim_q, dtype=float)[idx])
+        start_deg = float(math.degrees(q_start))
+        half = sweep_range_deg / 2.0
+        n_pts = int(max(3, min(25, round(sweep_range_deg / step_deg) + 1)))
+        offsets = np.linspace(-half, half, num=n_pts).tolist()
+
+        name_lower = object_name.lower()
+        red_target = ("red" in name_lower) or ("apple" in name_lower) or ("红" in object_name) or ("苹果" in object_name)
+        samples: List[Dict[str, object]] = []
+        best_score = -1.0
+        best_angle_deg = start_deg
+        best_frame_path = ""
+
+        for off in offsets:
+            target_deg = float(start_deg + float(off))
+            ok_rot, rot_result = self._tool_rotate_joint_main_thread(
+                {"joint_name": str(self.sim_joint_names[idx]), "target_deg": target_deg, "wait": True}
+            )
+            if not ok_rot:
+                samples.append({"angle_deg": target_deg, "ok": False, "score": 0.0})
+                continue
+
+            ok_frame, frame_result = self._tool_get_camera_frame_main_thread(
+                {
+                    "source": source,
+                    "width": width,
+                    "height": height,
+                    "format": "jpg",
+                    "return_mode": "path",
+                }
+            )
+            frame_path = str(frame_result.get("path", "")) if ok_frame else ""
+            frame_img = cv2.imread(frame_path) if frame_path else None
+            det = self._tool_estimate_red_object_score(frame_img) if red_target else {"score": 0.0, "red_ratio": 0.0, "area_ratio": 0.0}
+            score = float(det.get("score", 0.0))
+
+            if score > best_score:
+                best_score = score
+                best_angle_deg = float(rot_result.get("actual_target_deg", target_deg))
+                best_frame_path = frame_path
+            samples.append(
+                {
+                    "angle_deg": float(rot_result.get("actual_target_deg", target_deg)),
+                    "ok": bool(ok_frame),
+                    "score": score,
+                    "red_ratio": float(det.get("red_ratio", 0.0)),
+                    "area_ratio": float(det.get("area_ratio", 0.0)),
+                }
+            )
+
+        found = bool(best_score >= 0.12 and red_target)
+        if return_to_start:
+            self._tool_rotate_joint_main_thread(
+                {"joint_name": str(self.sim_joint_names[idx]), "target_deg": start_deg, "wait": True}
+            )
+        elif found:
+            self._tool_rotate_joint_main_thread(
+                {"joint_name": str(self.sim_joint_names[idx]), "target_deg": best_angle_deg, "wait": True}
+            )
+
+        result = {
+            "ok": True,
+            "backend": f"main-thread-{self._sim_backend}",
+            "message": "scan completed",
+            "object_name": object_name,
+            "detector": "red_hsv" if red_target else "unsupported_object_name",
+            "scan_joint": str(self.sim_joint_names[idx]),
+            "source": source,
+            "found": found,
+            "confidence": float(max(0.0, best_score)),
+            "start_angle_deg": float(start_deg),
+            "best_angle_deg": float(best_angle_deg),
+            "sweep_range_deg": float(sweep_range_deg),
+            "step_deg": float(step_deg),
+            "best_frame_path": best_frame_path,
+            "samples": samples,
+        }
+        if not red_target:
+            result["found"] = False
+            result["message"] = "scan completed (no detector for object_name; only red object detector enabled)"
+        return True, result
 
     def _tool_run_skill_main_thread(self, payload: Dict[str, object]) -> Tuple[bool, Dict[str, object]]:
         raw_name = str(payload.get("name", "") or "").strip().lower()
@@ -1652,8 +1869,24 @@ class ArmControlGUI(QMainWindow):
             approach_z = target_z + max(0.05, self._tool_to_float(params.get("approach_offset_z", 0.08), 0.08))
             pre_grasp_z = target_z + max(0.01, self._tool_to_float(params.get("pre_grasp_offset_z", 0.02), 0.02))
             motion_dur = max(0.2, min(3.0, self._tool_to_float(params.get("duration", 0.8), 0.8)))
+            scan_first = bool(params.get("scan_first", True))
+            open_ratio = max(0.0, min(1.0, self._tool_to_float(params.get("open_ratio_before", 1.0), 1.0)))
+            close_ratio = max(0.0, min(1.0, self._tool_to_float(params.get("close_ratio", 0.0), 0.0)))
 
             phases = []
+            if scan_first:
+                ok_scan, r_scan = self._tool_scan_for_object_main_thread(
+                    {
+                        "object_name": str(params.get("object_name", "red apple") or "red apple"),
+                        "sweep_range_deg": self._tool_to_float(params.get("scan_range_deg", 120.0), 120.0),
+                        "step_deg": self._tool_to_float(params.get("scan_step_deg", 15.0), 15.0),
+                        "source": "eye_in_hand",
+                        "return_to_start": False,
+                    }
+                )
+                phases.append({"phase": "scan", "ok": bool(ok_scan), "result": r_scan})
+            ok0, r0 = self._tool_set_gripper_tool_main_thread({"open_ratio": open_ratio, "wait": True})
+            phases.append({"phase": "open_gripper", "ok": bool(ok0), "result": r0})
             ok1, r1 = self._tool_move_robot_arm_main_thread(
                 {"x": target_x, "y": target_y, "z": approach_z, "frame": "base", "duration": motion_dur, "wait": True}
             )
@@ -1662,13 +1895,13 @@ class ArmControlGUI(QMainWindow):
                 {"x": target_x, "y": target_y, "z": pre_grasp_z, "frame": "base", "duration": motion_dur, "wait": True}
             )
             phases.append({"phase": "descend", "ok": bool(ok2), "result": r2})
-            gripper_ok = self._tool_set_gripper_main_thread(0.2)
-            phases.append({"phase": "close_gripper", "ok": bool(gripper_ok), "result": {"ok": bool(gripper_ok)}})
+            okg, rg = self._tool_set_gripper_tool_main_thread({"open_ratio": close_ratio, "wait": True})
+            phases.append({"phase": "close_gripper", "ok": bool(okg), "result": rg})
             ok3, r3 = self._tool_move_robot_arm_main_thread(
                 {"x": target_x, "y": target_y, "z": approach_z, "frame": "base", "duration": motion_dur, "wait": True}
             )
             phases.append({"phase": "lift", "ok": bool(ok3), "result": r3})
-            overall = bool(ok1 and ok2 and ok3)
+            overall = bool(ok0 and ok1 and ok2 and okg and ok3)
             return (
                 overall,
                 {
@@ -1703,6 +1936,12 @@ class ArmControlGUI(QMainWindow):
                 ok, result = self._tool_get_camera_frame_main_thread(args)
             elif name == "stop_robot":
                 ok, result = self._tool_stop_robot_main_thread()
+            elif name == "set_gripper":
+                ok, result = self._tool_set_gripper_tool_main_thread(args)
+            elif name == "rotate_joint":
+                ok, result = self._tool_rotate_joint_main_thread(args)
+            elif name == "scan_for_object":
+                ok, result = self._tool_scan_for_object_main_thread(args)
             elif name == "run_skill":
                 ok, result = self._tool_run_skill_main_thread(args)
             else:

@@ -70,6 +70,85 @@ OPENAI_TOOL_SCHEMAS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "set_gripper",
+            "description": "Set gripper open ratio. 0.0 means fully closed, 1.0 means fully open.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "open_ratio": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "default": 1.0,
+                    },
+                    "wait": {"type": "boolean", "default": True},
+                },
+                "required": ["open_ratio"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rotate_joint",
+            "description": "Rotate one joint by delta degrees, or set joint to absolute degrees.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "joint_name": {"type": "string", "description": "Joint name like wrist_roll"},
+                    "delta_deg": {"type": "number", "description": "Relative rotation in degrees"},
+                    "target_deg": {"type": "number", "description": "Optional absolute joint angle in degrees"},
+                    "wait": {"type": "boolean", "default": True},
+                },
+                "required": ["joint_name"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "scan_for_object",
+            "description": "Rotate wrist/camera to scan and try finding target object from eye-in-hand camera.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "object_name": {"type": "string", "description": "Target object name, e.g. red apple"},
+                    "sweep_range_deg": {
+                        "type": "number",
+                        "minimum": 10.0,
+                        "maximum": 240.0,
+                        "default": 120.0,
+                    },
+                    "step_deg": {
+                        "type": "number",
+                        "minimum": 2.0,
+                        "maximum": 60.0,
+                        "default": 15.0,
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": ["eye_in_hand", "scene"],
+                        "default": "eye_in_hand",
+                    },
+                    "joint_name": {
+                        "type": "string",
+                        "description": "Optional scan joint name, default wrist_roll",
+                        "default": "wrist_roll",
+                    },
+                    "return_to_start": {"type": "boolean", "default": False},
+                    "width": {"type": "integer", "minimum": 160, "maximum": 1920, "default": 960},
+                    "height": {"type": "integer", "minimum": 120, "maximum": 1080, "default": 720},
+                },
+                "required": ["object_name"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_skill",
             "description": "Run a higher-level robot behavior skill by name.",
             "parameters": {
@@ -311,6 +390,63 @@ class LocalToolDispatcher:
         print(msg)
         return msg
 
+    def set_gripper(self, open_ratio: float = 1.0, wait: bool = True) -> str:
+        ratio = max(0.0, min(1.0, _to_float(open_ratio, 1.0)))
+        out = {
+            "ok": True,
+            "message": "set_gripper executed (mock)",
+            "open_ratio": ratio,
+            "wait": bool(wait),
+        }
+        return json.dumps(out, ensure_ascii=False)
+
+    def rotate_joint(
+        self,
+        joint_name: str = "wrist_roll",
+        delta_deg: float = 0.0,
+        target_deg: Optional[float] = None,
+        wait: bool = True,
+    ) -> str:
+        out = {
+            "ok": True,
+            "message": "rotate_joint executed (mock)",
+            "joint_name": str(joint_name or "wrist_roll"),
+            "delta_deg": float(_to_float(delta_deg, 0.0)),
+            "target_deg": None if target_deg is None else float(_to_float(target_deg, 0.0)),
+            "wait": bool(wait),
+        }
+        return json.dumps(out, ensure_ascii=False)
+
+    def scan_for_object(
+        self,
+        object_name: str,
+        sweep_range_deg: float = 120.0,
+        step_deg: float = 15.0,
+        source: str = "eye_in_hand",
+        joint_name: str = "wrist_roll",
+        return_to_start: bool = False,
+        width: int = 960,
+        height: int = 720,
+    ) -> str:
+        source = "scene" if str(source).strip().lower() == "scene" else "eye_in_hand"
+        width = max(160, min(1920, _to_int(width, 960)))
+        height = max(120, min(1080, _to_int(height, 720)))
+        _ = max(10.0, min(240.0, _to_float(sweep_range_deg, 120.0)))
+        _ = max(2.0, min(60.0, _to_float(step_deg, 15.0)))
+        frame_resp = json.loads(self.get_camera_frame(source=source, width=width, height=height, return_mode="path"))
+        out = {
+            "ok": True,
+            "message": "scan_for_object executed (mock)",
+            "object_name": str(object_name or "").strip() or "unknown",
+            "found": True,
+            "confidence": 0.62,
+            "scan_joint": str(joint_name or "wrist_roll"),
+            "return_to_start": bool(return_to_start),
+            "best_angle_deg": 0.0,
+            "frame_path": str(frame_resp.get("path", "")),
+        }
+        return json.dumps(out, ensure_ascii=False)
+
     def dispatch(self, name: str, arguments: Optional[Dict[str, Any]] = None) -> str:
         args = dict(arguments or {})
         func = str(name or "").strip()
@@ -320,6 +456,9 @@ class LocalToolDispatcher:
             "get_robot_state",
             "get_camera_frame",
             "stop_robot",
+            "set_gripper",
+            "rotate_joint",
+            "scan_for_object",
             "run_skill",
         ):
             return self._dispatch_via_tool_requester(func, args)
@@ -349,6 +488,26 @@ class LocalToolDispatcher:
             )
         if func == "stop_robot":
             return self.stop_robot()
+        if func == "set_gripper":
+            return self.set_gripper(open_ratio=args.get("open_ratio", 1.0), wait=args.get("wait", True))
+        if func == "rotate_joint":
+            return self.rotate_joint(
+                joint_name=args.get("joint_name", "wrist_roll"),
+                delta_deg=args.get("delta_deg", 0.0),
+                target_deg=args.get("target_deg", None),
+                wait=args.get("wait", True),
+            )
+        if func == "scan_for_object":
+            return self.scan_for_object(
+                object_name=str(args.get("object_name", "")),
+                sweep_range_deg=args.get("sweep_range_deg", 120.0),
+                step_deg=args.get("step_deg", 15.0),
+                source=args.get("source", "eye_in_hand"),
+                joint_name=args.get("joint_name", "wrist_roll"),
+                return_to_start=args.get("return_to_start", False),
+                width=args.get("width", 960),
+                height=args.get("height", 720),
+            )
         if func == "run_skill":
             name = str(args.get("name", "")).strip()
             params = args.get("params", {})

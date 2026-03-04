@@ -533,7 +533,7 @@ class _OpenClawAgentWorker(QThread):
             "1) 必须优先依据每条 result 里的 ok / within_tolerance 字段判断执行是否成功。\n"
             "2) 若 ok=true（或 within_tolerance=true），禁止描述为“误差较大”或“失败”。\n"
             "3) 若 ok=false，才可以描述失败或误差超限。\n"
-            "4) 如果当前目标复杂（如抓取、跳舞），优先尝试 run_skill，而不是直接拒绝。\n"
+            "4) 如果当前目标复杂（如抓取、跳舞），优先尝试 run_skill 或 scan_for_object + move_robot_arm + set_gripper，而不是直接拒绝。\n"
             "5) 如果还需要工具调用，请继续返回 tool_calls；如果任务完成，请直接返回最终中文答复。"
         )
 
@@ -549,11 +549,14 @@ class _OpenClawAgentWorker(QThread):
             "{\"tool_calls\":[{\"id\":\"call_x\",\"type\":\"function\",\"function\":{\"name\":\"...\",\"arguments\":\"{...}\"}}]}。\n"
             "3) 当用户要求执行相对移动（如“高一点”“往左移动”）时，必须先调用 get_robot_state 获取当前 (x,y,z) 绝对坐标，"
             "再把相对偏移量加到当前坐标上，最后调用 move_robot_arm。\n"
-            "4) 遇到高层目标（如“抓红苹果”“让机械臂跳舞”）时，优先调用 run_skill：\n"
+            "4) 夹爪控制优先使用 set_gripper(open_ratio)。open_ratio=1 表示张开，0 表示闭合。\n"
+            "5) 旋转相机/腕部观察时，优先使用 rotate_joint(joint_name=\"wrist_roll\", delta_deg=...)。\n"
+            "6) 抓取类任务（如“抓红苹果”）优先顺序：scan_for_object -> move_robot_arm -> set_gripper；或直接 run_skill。\n"
+            "7) 遇到高层目标（如“抓红苹果”“让机械臂跳舞”）时，优先调用 run_skill：\n"
             "   - 抓苹果 -> run_skill(name=\"grasp_apple_mock\", params={...})\n"
             "   - 跳舞 -> run_skill(name=\"dance_short\", params={...})\n"
             "   只有明确超出当前能力且存在安全风险时，才简短拒绝。\n"
-            "5) 对无效语音或闲聊（非控制指令）返回简短自然回复，不要生硬报错。\n\n"
+            "8) 对无效语音或闲聊（非控制指令）返回简短自然回复，不要生硬报错。\n\n"
             f"用户请求：{user_message}"
         )
 
