@@ -12,7 +12,7 @@ import time
 import base64
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -105,13 +105,18 @@ SDK_SRC = REPO_ROOT / "sdk" / "src"
 if SDK_SRC.exists() and str(SDK_SRC) not in sys.path:
     sys.path.insert(0, str(SDK_SRC))
 
+if TYPE_CHECKING:
+    from soarmmoce_sdk import Robot as SDKRobot
+else:
+    SDKRobot = Any
+
 try:
-    from soarmmoce_sdk import Robot
+    from soarmmoce_sdk import Robot as RuntimeRobot
 
     SDK_AVAILABLE = True
     _SDK_IMPORT_ERROR = None
 except Exception as _sdk_e:
-    Robot = Any  # type: ignore[assignment]
+    RuntimeRobot = None
     SDK_AVAILABLE = False
     _SDK_IMPORT_ERROR = _sdk_e
 
@@ -188,7 +193,7 @@ class ArmControlGUI(QMainWindow):
         self._sim_fk = None
         self._sim_matrix_to_rpy = None
         self._sim_solve_ik = None
-        self._sdk_robot: Optional[Robot] = None
+        self._sdk_robot: Optional[SDKRobot] = None
         self._sdk_lock = threading.RLock()
         self._sdk_transport_override = str(os.getenv("SOARMMOCE_TRANSPORT", "")).strip().lower() or None
         self._sdk_config_path = str(os.getenv("SOARMMOCE_CONFIG", "")).strip() or None
@@ -1480,7 +1485,7 @@ class ArmControlGUI(QMainWindow):
                 return i
         return None
 
-    def _sdk_transport_name(self, robot: Robot) -> str:
+    def _sdk_transport_name(self, robot: SDKRobot) -> str:
         transport = getattr(robot, "_transport", None)
         if transport is None:
             return "uninitialized"
@@ -1490,13 +1495,15 @@ class ArmControlGUI(QMainWindow):
         msg = str(exc).strip() or exc.__class__.__name__
         return {"ok": False, "error": msg, "error_type": exc.__class__.__name__, "backend": "sdk"}
 
-    def _sdk_get_robot(self) -> Robot:
+    def _sdk_get_robot(self) -> SDKRobot:
         if not SDK_AVAILABLE:
             raise RuntimeError(f"soarmmoce_sdk import failed: {_SDK_IMPORT_ERROR}")
+        if RuntimeRobot is None:
+            raise RuntimeError("soarmmoce_sdk runtime class is unavailable")
 
         with self._sdk_lock:
             if self._sdk_robot is None:
-                robot = Robot.from_config(self._sdk_config_path) if self._sdk_config_path else Robot()
+                robot = RuntimeRobot.from_config(self._sdk_config_path) if self._sdk_config_path else RuntimeRobot()
                 if self._sdk_transport_override in ("mock", "tcp", "serial"):
                     robot.config.setdefault("transport", {})["type"] = str(self._sdk_transport_override)
                 self._sdk_robot = robot
