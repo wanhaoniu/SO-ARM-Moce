@@ -1,13 +1,11 @@
 import numpy as np
-from pathlib import Path
 
-from soarmMoce_sdk.api.robot import Robot
-from soarmMoce_sdk.kinematics import fk, matrix_to_rpy, solve_ik
+from soarmmoce_sdk import Robot
+from soarmmoce_sdk.kinematics import fk, matrix_to_rpy, solve_ik
 
 
 def test_fk_ik_roundtrip():
-    cfg = Path(__file__).resolve().parents[2] / "configs" / "soarm_moce.yaml"
-    robot = Robot.from_config(str(cfg))
+    robot = Robot()
     robot.connect()
 
     lower = np.array([l for l, _ in robot.robot_model.joint_limits], dtype=float)

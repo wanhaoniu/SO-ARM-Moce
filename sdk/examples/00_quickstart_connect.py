@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from soarmMoce_sdk.api.robot import Robot
+from soarmmoce_sdk import Robot
 
 
 def main():
-    robot = Robot.from_config("./configs/soarm_moce.yaml")
+    robot = Robot()
     robot.connect()
     js = robot.get_joint_state()
     print("Joint state q:", js.q)

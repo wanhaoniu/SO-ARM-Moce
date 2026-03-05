@@ -28,7 +28,7 @@ except Exception:
 
 # Extracted for easy replacement with env var later.
 # Recommended: export GROQ_API_KEY and remove fallback literal.
-GROQ_API_KEY_FALLBACK = " "
+GROQ_API_KEY_FALLBACK = ""
 GROQ_STT_URL_DEFAULT = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_STT_MODEL_DEFAULT = "whisper-large-v3"
 

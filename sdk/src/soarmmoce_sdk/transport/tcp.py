@@ -172,3 +172,8 @@ class TCPTransport(TransportBase):
                 self._sock.shutdown(socket.SHUT_RDWR)
             except Exception:
                 pass
+
+    def wait_until_stopped(self, timeout: float | None = None) -> bool:
+        # Current TCP protocol only gives command ACK, not motion-complete status.
+        # Keep deterministic best-effort behavior until server adds completion signal.
+        return True

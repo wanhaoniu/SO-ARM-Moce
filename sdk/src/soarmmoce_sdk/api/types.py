@@ -17,3 +17,11 @@ class JointState:
 class Pose:
     xyz: np.ndarray
     rpy: np.ndarray
+
+
+@dataclass
+class RobotState:
+    connected: bool
+    joint_state: JointState
+    tcp_pose: Pose
+    timestamp: Optional[float] = None

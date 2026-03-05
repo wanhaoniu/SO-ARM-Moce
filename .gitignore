@@ -4,6 +4,10 @@
 *.sldprt
 *.sldasm
 *.pyc
+__pycache__/
 ~$*
 Software/Slave/recordings_local
 .DS_Store
+*.egg-info/
+sdk/build/
+sdk/dist/

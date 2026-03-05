@@ -22,3 +22,9 @@ class IKError(SoarmMoceError):
 
 class LimitError(SoarmMoceError):
     pass
+
+
+class CapabilityError(SoarmMoceError):
+    """Raised when a requested capability is unsupported by current transport/backend."""
+
+    pass

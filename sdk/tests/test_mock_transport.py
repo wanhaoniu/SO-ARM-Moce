@@ -1,12 +1,10 @@
 import numpy as np
-from pathlib import Path
 
-from soarmMoce_sdk.api.robot import Robot
+from soarmmoce_sdk import Robot
 
 
 def test_mock_transport_movej():
-    cfg = Path(__file__).resolve().parents[2] / "configs" / "soarm_moce.yaml"
-    robot = Robot.from_config(str(cfg))
+    robot = Robot()
     robot.connect()
 
     lower = np.array([l for l, _ in robot.robot_model.joint_limits], dtype=float)

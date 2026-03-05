@@ -3,35 +3,29 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "soarmmoce-sdk"
+name = "soarmmoce-openclaw-skill"
 version = "0.1.0"
-description = "SoarmMoce Python SDK (minimal)"
+description = "OpenClaw tool-call adapter for soarmmoce-sdk Robot API"
 readme = "README.md"
 requires-python = ">=3.8"
 authors = [{name = "SoarmMoce"}]
 license = "MIT"
-keywords = ["robot", "arm", "ik", "sdk"]
-
+keywords = ["openclaw", "robot", "soarmmoce", "tool-calling"]
 dependencies = [
-  "numpy>=1.21",
-  "pyyaml>=6.0",
+  "soarmmoce-sdk>=0.1.0",
 ]
 
 [project.optional-dependencies]
-sim = ["pybullet>=3.2"]
-viz = []
-hardware = []
-dev = ["build", "pytest", "black", "ruff"]
+dev = ["build", "pytest"]
+
+[project.scripts]
+soarmmoce-skill = "soarmmoce_openclaw_skill.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-soarmmoce_sdk = ["resources/**/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

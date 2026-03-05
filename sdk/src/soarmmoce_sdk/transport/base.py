@@ -31,3 +31,23 @@ class TransportBase:
 
     def stop(self) -> None:
         raise NotImplementedError
+
+    def wait_until_stopped(self, timeout: Optional[float] = None) -> bool:
+        """Best-effort wait for motion completion.
+
+        Returns:
+            True when motion is considered complete.
+            False when timeout expires before completion.
+
+        The default implementation is a no-op for transports that cannot
+        introspect motion state yet.
+        """
+        return True
+
+    def set_gripper(
+        self,
+        open_ratio: float,
+        wait: bool = True,
+        timeout: Optional[float] = None,
+    ) -> None:
+        raise NotImplementedError("set_gripper is not supported by this transport")

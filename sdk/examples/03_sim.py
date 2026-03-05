@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 PyBullet IK teaching demo (ik1-style): sliders for xyz/rpy.
-Run from repo root so ./configs/soarm_moce.yaml is found.
+By default it loads package config resources/configs/soarm_moce.yaml.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import importlib.resources as resources
 
 import numpy as np
 
-from soarmMoce_sdk.config import load_config
+from soarmmoce_sdk.config import load_config
 
 
 def _resolve_pkg_path(value: str) -> Path:
@@ -104,7 +104,7 @@ def set_robot_joints(p, robot_id, movable_joint_indices, q):
 
 def run():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="./configs/soarm_moce.yaml")
+    parser.add_argument("--config", default=None)
     parser.add_argument("--urdf", default=None)
     parser.add_argument("--ee_link", default=None)
     parser.add_argument("--deg", action="store_true", help="use degrees for rpy (default)")

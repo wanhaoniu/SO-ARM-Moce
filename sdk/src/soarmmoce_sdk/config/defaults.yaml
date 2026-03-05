@@ -6,10 +6,10 @@ transport:
   timeout: 2.0
 
 urdf:
-  path: "pkg://soarmMoce_sdk/resources/urdf/soarmoce_urdf.urdf"
+  path: "pkg://soarmmoce_sdk/resources/urdf/soarmoce_urdf.urdf"
 
 meshes:
-  path: "pkg://soarmMoce_sdk/resources/meshes"
+  path: "pkg://soarmmoce_sdk/resources/meshes"
 
 calibration:
   path: ""

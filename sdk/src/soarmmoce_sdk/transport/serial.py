@@ -39,3 +39,7 @@ class SerialTransport(TransportBase):
 
     def stop(self) -> None:
         pass
+
+    def wait_until_stopped(self, timeout: float | None = None) -> bool:
+        # Serial backend is not implemented yet, keep a predictable no-op contract.
+        return True

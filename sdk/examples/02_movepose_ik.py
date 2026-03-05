@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
 import numpy as np
-from soarmMoce_sdk.api.robot import Robot
+from soarmmoce_sdk import Robot
 
 
 def main():
-    robot = Robot.from_config("./configs/soarm_moce.yaml")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default=None, help="Optional config path")
+    args = parser.parse_args()
+
+    robot = Robot.from_config(args.config) if args.config else Robot()
     robot.connect()
 
     # Use current pose as a reachable target for demonstration
