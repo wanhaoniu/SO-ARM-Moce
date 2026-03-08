@@ -45,10 +45,31 @@ For relative user intent such as "抬高一点" or "靠近一点":
 - `dx`, `dy`, `dz` (meters), optional `frame` (`base` or `tool`)
 - Example: `{"dx": 0.0, "dy": 0.0, "dz": 0.01, "frame": "base"}`
 
+## Frame Semantics
+
+Use `base` as the default frame for natural-language motion unless the user clearly asks for motion relative to the tool/end-effector direction.
+
+Rules:
+- `base` frame means world/base coordinates.
+- `tool` frame means end-effector local coordinates.
+- Never use `tool` frame for `抬高/降低/升高/下降/向上/向下`.
+- Only use `tool` frame for local end-effector motion such as `靠近一点/远离一点/向前一点/向后一点` when the meaning is clearly relative to the current tool direction.
+- If the natural language is ambiguous, choose `base`.
+
+## Natural Language Mapping
+
 Default small-step offsets:
-- `高一点`: `z + 0.01`
-- `低一点`: `z - 0.01`
-- `靠近一点`: `frame="tool"` and `x + 0.01`
+- `抬高一点` / `高一点` / `升高一点` / `向上一点` -> `{"dx": 0.0, "dy": 0.0, "dz": 0.01, "frame": "base"}`
+- `降低一点` / `低一点` / `下降一点` / `向下一点` -> `{"dx": 0.0, "dy": 0.0, "dz": -0.01, "frame": "base"}`
+- `靠近一点` / `向前一点` -> `{"dx": 0.01, "dy": 0.0, "dz": 0.0, "frame": "tool"}`
+- `远离一点` / `向后一点` -> `{"dx": -0.01, "dy": 0.0, "dz": 0.0, "frame": "tool"}`
+
+Command construction rules:
+- Always prefer canonical arguments `dx`, `dy`, `dz`.
+- Do not invent wrapper shapes such as `delta`, `xyz`, or `rpy` for `move_robot_delta`.
+- For `move_robot_delta`, always include an explicit `frame`.
+- If the user asks to "raise" the arm, the expected effect is `base z` increasing.
+- If the user asks to "lower" the arm, the expected effect is `base z` decreasing.
 
 For gripper natural language:
 - `夹爪闭合/抓住` -> `close_gripper` (or `set_gripper(open_ratio=0.0)`)
