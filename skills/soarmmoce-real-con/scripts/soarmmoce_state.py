@@ -3,12 +3,12 @@
 
 from __future__ import annotations
 
-from soarm101_cli_common import run_and_print
-from soarm101_sdk import SoArm101Controller
+from soarmmoce_cli_common import run_and_print
+from soarmmoce_sdk import SoArmMoceController
 
 
 def main() -> None:
-    run_and_print(lambda: SoArm101Controller().read())
+    run_and_print(lambda: SoArmMoceController().read())
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared CLI helpers for soarm101 control scripts."""
+"""Shared CLI helpers for soarmMoce control scripts."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import argparse
 import json
 from typing import Any, Callable, TypeVar
 
-from soarm101_sdk import to_jsonable
+from soarmmoce_sdk import to_jsonable
 
 
 ResultT = TypeVar("ResultT")

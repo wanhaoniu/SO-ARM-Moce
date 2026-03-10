@@ -14,8 +14,8 @@ metadata:
 
 - 本技能用于直接控制本机串口连接的真实 `soarmMoce` follower arm。
 - 代码结构分成两层：
-  - `scripts/soarm101_sdk.py`：SDK 风格控制逻辑
-  - `scripts/soarm101_state.py` / `scripts/soarm101_move.py`：命令行入口
+  - `scripts/soarmmoce_sdk.py`：SDK 风格控制逻辑
+  - `scripts/soarmmoce_state.py` / `scripts/soarmmoce_move.py`：命令行入口
 - 2 号关节 `shoulder_lift` 与 3 号关节 `elbow_flex` 已分别按减速比 `5.3 / 5.6` 做换算，底层运行在多圈模式。
 - 当前机械臂没有安装 6 号夹爪舵机，不要调用夹爪脚本或夹爪 API。
 
@@ -38,39 +38,39 @@ metadata:
 ### 1) 读取状态
 
 ```bash
-python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarm101_state.py
+python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarmmoce_state.py
 ```
 
 ### 2) 小步笛卡尔移动
 
 ```bash
-python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarm101_move.py delta --dz 0.01 --frame base
+python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarmmoce_move.py delta --dz 0.01 --frame base
 ```
 
 ### 3) 绝对 XYZ 移动
 
 ```bash
-python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarm101_move.py xyz --x 0.22 --y 0.00 --z 0.18
+python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarmmoce_move.py xyz --x 0.22 --y 0.00 --z 0.18
 ```
 
 ### 4) 关节级低层修正
 
 ```bash
-python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarm101_move.py joint --joint wrist_roll --delta-deg 5
+python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarmmoce_move.py joint --joint wrist_roll --delta-deg 5
 ```
 
 ### 5) 回零
 
 ```bash
-python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarm101_move.py home
+python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarmmoce_move.py home
 ```
 
 ## SDK 直接调用
 
 ```python
-from soarm101_sdk import SoArm101Controller
+from soarmmoce_sdk import SoArmMoceController
 
-arm = SoArm101Controller()
+arm = SoArmMoceController()
 arm.move_delta(dz=0.01, frame="base")
 print(arm.get_state())
 ```
@@ -83,20 +83,20 @@ PYTHONPATH=~/.openclaw/skills/soarmmoce-real-con/scripts python3 /tmp/soarmmoce_
 
 ## 可用 API
 
-- `SoArm101Controller().read()`
-- `SoArm101Controller().get_state()`
-- `SoArm101Controller().move_delta(...)`
-- `SoArm101Controller().move_to(...)`
-- `SoArm101Controller().move_joint(...)`
-- `SoArm101Controller().move_joints(...)`
-- `SoArm101Controller().home()`
-- `SoArm101Controller().stop()`
+- `SoArmMoceController().read()`
+- `SoArmMoceController().get_state()`
+- `SoArmMoceController().move_delta(...)`
+- `SoArmMoceController().move_to(...)`
+- `SoArmMoceController().move_joint(...)`
+- `SoArmMoceController().move_joints(...)`
+- `SoArmMoceController().home()`
+- `SoArmMoceController().stop()`
 
 以下接口会直接报错，因为当前硬件没有夹爪舵机：
 
-- `SoArm101Controller().set_gripper(...)`
-- `SoArm101Controller().open_gripper()`
-- `SoArm101Controller().close_gripper()`
+- `SoArmMoceController().set_gripper(...)`
+- `SoArmMoceController().open_gripper()`
+- `SoArmMoceController().close_gripper()`
 
 ## 环境变量
 
@@ -116,10 +116,10 @@ PYTHONPATH=~/.openclaw/skills/soarmmoce-real-con/scripts python3 /tmp/soarmmoce_
 ## 执行策略
 
 默认优先级：
-1. `soarm101_state.py`
-2. `soarm101_move.py delta`
-3. `soarm101_move.py xyz`
-4. `soarm101_move.py home`
+1. `soarmmoce_state.py`
+2. `soarmmoce_move.py delta`
+3. `soarmmoce_move.py xyz`
+4. `soarmmoce_move.py home`
 5. SDK 临时脚本
 6. `joint` / `joints` 仅作低层兜底
 
@@ -128,7 +128,7 @@ PYTHONPATH=~/.openclaw/skills/soarmmoce-real-con/scripts python3 /tmp/soarmmoce_
 
 ## 参考文件
 
-- `skills/soarmmoce-real-con/scripts/soarm101_sdk.py`
-- `skills/soarmmoce-real-con/scripts/soarm101_state.py`
-- `skills/soarmmoce-real-con/scripts/soarm101_move.py`
+- `skills/soarmmoce-real-con/scripts/soarmmoce_sdk.py`
+- `skills/soarmmoce-real-con/scripts/soarmmoce_state.py`
+- `skills/soarmmoce-real-con/scripts/soarmmoce_move.py`
 - `skills/soarmmoce-real-con/agents/openai.yaml`

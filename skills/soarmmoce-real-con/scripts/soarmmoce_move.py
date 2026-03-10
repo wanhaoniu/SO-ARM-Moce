@@ -7,8 +7,8 @@ import argparse
 import json
 from typing import Any, Dict
 
-from soarm101_cli_common import cli_bool, print_error, print_success
-from soarm101_sdk import SoArm101Controller
+from soarmmoce_cli_common import cli_bool, print_error, print_success
+from soarmmoce_sdk import SoArmMoceController
 
 
 def main() -> None:
@@ -56,7 +56,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        arm = SoArm101Controller()
+        arm = SoArmMoceController()
         if args.cmd == "delta":
             result = arm.move_delta(
                 dx=args.dx,

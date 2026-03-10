@@ -54,8 +54,8 @@ __all__ = [
     "JOINTS",
     "HardwareError",
     "IKError",
-    "SoArm101Config",
-    "SoArm101Controller",
+    "SoArmMoceConfig",
+    "SoArmMoceController",
     "ValidationError",
     "resolve_config",
     "to_jsonable",
@@ -75,7 +75,7 @@ class IKError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class SoArm101Config:
+class SoArmMoceConfig:
     port: str
     robot_id: str
     calib_dir: Path
@@ -111,7 +111,7 @@ def _load_calibration(robot_name: str, calib_dir: Path) -> dict[str, MotorCalibr
 
 
 def _candidate_calibration_dirs() -> list[Path]:
-    env = _env_value("SOARMMOCE_CALIB_DIR", "SOARM101_CALIB_DIR")
+    env = _env_value("SOARMMOCE_CALIB_DIR")
     candidates: list[Path] = []
     if env:
         candidates.append(Path(env).expanduser())
@@ -138,7 +138,7 @@ def _candidate_calibration_dirs() -> list[Path]:
 
 
 def _candidate_urdf_paths() -> list[Path]:
-    env = _env_value("SOARMMOCE_URDF_PATH", "SOARM101_URDF_PATH")
+    env = _env_value("SOARMMOCE_URDF_PATH")
     candidates: list[Path] = []
     if env:
         candidates.append(Path(env).expanduser())
@@ -171,7 +171,7 @@ def _resolve_urdf_path() -> Path:
 
 
 def _resolve_home_joints() -> Dict[str, float]:
-    raw = _env_value("SOARMMOCE_HOME_JOINTS_JSON", "SOARM101_HOME_JOINTS_JSON")
+    raw = _env_value("SOARMMOCE_HOME_JOINTS_JSON")
     if not raw:
         return {name: float(value) for name, value in DEFAULT_HOME_JOINTS.items()}
     try:
@@ -192,7 +192,7 @@ def _resolve_home_joints() -> Dict[str, float]:
 
 
 def _resolve_joint_scales() -> Dict[str, float]:
-    raw = _env_value("SOARMMOCE_JOINT_SCALE_JSON", "SOARM101_JOINT_SCALE_JSON")
+    raw = _env_value("SOARMMOCE_JOINT_SCALE_JSON")
     scales = {name: float(value) for name, value in DEFAULT_JOINT_SCALES.items()}
     if not raw:
         return scales
@@ -215,11 +215,11 @@ def _resolve_joint_scales() -> Dict[str, float]:
     return scales
 
 
-def resolve_config() -> SoArm101Config:
-    robot_id = _env_value("SOARMMOCE_ROBOT_ID", "SOARM101_ROBOT_ID", default="follower_moce")
-    port = _env_value("SOARMMOCE_PORT", "SOARM101_PORT", default="/dev/ttyACM0")
+def resolve_config() -> SoArmMoceConfig:
+    robot_id = _env_value("SOARMMOCE_ROBOT_ID", default="follower_moce")
+    port = _env_value("SOARMMOCE_PORT", default="/dev/ttyACM0")
     urdf_path = _resolve_urdf_path()
-    target_frame = _env_value("SOARMMOCE_TARGET_FRAME", "SOARM101_TARGET_FRAME", default=DEFAULT_TARGET_FRAME)
+    target_frame = _env_value("SOARMMOCE_TARGET_FRAME", default=DEFAULT_TARGET_FRAME)
 
     chosen_dir = None
     for candidate in _candidate_calibration_dirs():
@@ -232,7 +232,7 @@ def resolve_config() -> SoArm101Config:
             f"Could not find calibration for {robot_id}. Searched: {searched}. Set SOARMMOCE_CALIB_DIR explicitly."
         )
 
-    return SoArm101Config(
+    return SoArmMoceConfig(
         port=port,
         robot_id=robot_id,
         calib_dir=chosen_dir,
@@ -240,20 +240,12 @@ def resolve_config() -> SoArm101Config:
         target_frame=target_frame,
         home_joints=_resolve_home_joints(),
         joint_scales=_resolve_joint_scales(),
-        arm_p_coefficient=int(
-            _env_value("SOARMMOCE_ARM_P_COEFFICIENT", "SOARM101_ARM_P_COEFFICIENT", default="16")
-        ),
-        arm_d_coefficient=int(
-            _env_value("SOARMMOCE_ARM_D_COEFFICIENT", "SOARM101_ARM_D_COEFFICIENT", default="8")
-        ),
-        max_ee_pos_err_m=float(
-            _env_value("SOARMMOCE_MAX_EE_POS_ERR_M", "SOARM101_MAX_EE_POS_ERR_M", default="0.03")
-        ),
-        max_ee_ang_err_rad=float(
-            _env_value("SOARMMOCE_MAX_EE_ANG_ERR_RAD", "SOARM101_MAX_EE_ANG_ERR_RAD", default="0.05")
-        ),
-        linear_step_m=float(_env_value("SOARMMOCE_LINEAR_STEP_M", "SOARM101_LINEAR_STEP_M", default="0.01")),
-        joint_step_deg=float(_env_value("SOARMMOCE_JOINT_STEP_DEG", "SOARM101_JOINT_STEP_DEG", default="5.0")),
+        arm_p_coefficient=int(_env_value("SOARMMOCE_ARM_P_COEFFICIENT", default="16")),
+        arm_d_coefficient=int(_env_value("SOARMMOCE_ARM_D_COEFFICIENT", default="8")),
+        max_ee_pos_err_m=float(_env_value("SOARMMOCE_MAX_EE_POS_ERR_M", default="0.03")),
+        max_ee_ang_err_rad=float(_env_value("SOARMMOCE_MAX_EE_ANG_ERR_RAD", default="0.05")),
+        linear_step_m=float(_env_value("SOARMMOCE_LINEAR_STEP_M", default="0.01")),
+        joint_step_deg=float(_env_value("SOARMMOCE_JOINT_STEP_DEG", default="5.0")),
     )
 
 
@@ -284,14 +276,14 @@ def _make_passthrough_unnormalize(original_method, passthrough_ids: set[int]):
     return hybrid_unnormalize
 
 
-class SoArm101Controller:
-    def __init__(self, config: Optional[SoArm101Config] = None):
+class SoArmMoceController:
+    def __init__(self, config: Optional[SoArmMoceConfig] = None):
         self.config = config or resolve_config()
         self._lock = threading.Lock()
         self._bus: Optional[FeetechMotorsBus] = None
         self._kin_chain = None
 
-    def __enter__(self) -> "SoArm101Controller":
+    def __enter__(self) -> "SoArmMoceController":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
