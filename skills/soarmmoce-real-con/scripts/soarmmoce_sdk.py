@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import math
 import os
 import threading
 import time
@@ -51,6 +52,8 @@ DEFAULT_JOINT_SCALES = {
     "wrist_flex": 1.0,
     "wrist_roll": 1.0,
 }
+MULTI_TURN_READ_MODE = "read"
+MULTI_TURN_STEP_MODE = "step"
 __all__ = [
     "ARM_JOINTS",
     "JOINTS",
@@ -107,6 +110,13 @@ class SoArmMoceConfig:
     ik_seed_bias: float
 
 
+@dataclass(frozen=True)
+class MultiTurnCalibration:
+    home_wrapped_raw: int
+    min_relative_raw: int
+    max_relative_raw: int
+
+
 def _env_value(*keys: str, default: str = "") -> str:
     for key in keys:
         raw = os.environ.get(key)
@@ -118,12 +128,61 @@ def _env_value(*keys: str, default: str = "") -> str:
     return default
 
 
-def _load_calibration(robot_name: str, calib_dir: Path) -> dict[str, MotorCalibration]:
+def _load_calibration_payload(robot_name: str, calib_dir: Path) -> dict[str, dict[str, Any]]:
     fpath = calib_dir / f"{robot_name}.json"
     if not fpath.exists():
         raise FileNotFoundError(f"Calibration file not found: {fpath}")
-    with open(fpath, "r", encoding="utf-8") as f, draccus.config_type("json"):
-        return draccus.load(dict[str, MotorCalibration], f)
+    payload = json.loads(fpath.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValidationError(f"Calibration file must contain a JSON object: {fpath}")
+    return payload
+
+
+def _build_bus_calibration(payload: dict[str, dict[str, Any]]) -> dict[str, MotorCalibration]:
+    calibration: dict[str, MotorCalibration] = {}
+    for joint_name, raw_entry in payload.items():
+        if not isinstance(raw_entry, dict):
+            raise ValidationError(f"Calibration entry for {joint_name} must be an object")
+        calibration[joint_name] = MotorCalibration(
+            id=int(raw_entry["id"]),
+            drive_mode=int(raw_entry.get("drive_mode", 0)),
+            homing_offset=int(raw_entry.get("homing_offset", 0)),
+            range_min=int(raw_entry["range_min"]),
+            range_max=int(raw_entry["range_max"]),
+        )
+    return calibration
+
+
+def _load_calibration(robot_name: str, calib_dir: Path) -> dict[str, MotorCalibration]:
+    return _build_bus_calibration(_load_calibration_payload(robot_name, calib_dir))
+
+
+def _load_multi_turn_calibration(payload: dict[str, dict[str, Any]]) -> dict[str, MultiTurnCalibration]:
+    calibration: dict[str, MultiTurnCalibration] = {}
+    for joint_name in MULTI_TURN_JOINTS:
+        raw_entry = payload.get(joint_name)
+        if raw_entry is None:
+            continue
+        if not isinstance(raw_entry, dict):
+            raise ValidationError(f"Calibration entry for {joint_name} must be an object")
+        try:
+            home_wrapped_raw = int(raw_entry["home_wrapped_raw"]) % int(RAW_COUNTS_PER_REV)
+            min_relative_raw = int(raw_entry["min_relative_raw"])
+            max_relative_raw = int(raw_entry["max_relative_raw"])
+        except KeyError as exc:
+            raise ValidationError(
+                f"Multi-turn calibration for {joint_name} is missing required field: {exc.args[0]}"
+            ) from exc
+        if min_relative_raw >= max_relative_raw:
+            raise ValidationError(
+                f"Invalid multi-turn raw span for {joint_name}: min={min_relative_raw}, max={max_relative_raw}"
+            )
+        calibration[joint_name] = MultiTurnCalibration(
+            home_wrapped_raw=home_wrapped_raw,
+            min_relative_raw=min_relative_raw,
+            max_relative_raw=max_relative_raw,
+        )
+    return calibration
 
 
 def _candidate_calibration_dirs() -> list[Path]:
@@ -323,12 +382,15 @@ def _make_passthrough_unnormalize(original_method, passthrough_ids: set[int]):
 
 
 class SoArmMoceController:
-    def __init__(self, config: Optional[SoArmMoceConfig] = None):
+    def __init__(self, config: Optional[SoArmMoceConfig] = None, *, allow_uncalibrated_multiturn: bool = False):
         self.config = config or resolve_config()
         self._lock = threading.Lock()
         self._bus: Optional[FeetechMotorsBus] = None
         self._kin_chain = None
         self._multi_turn_state: Dict[str, Dict[str, float]] = {}
+        self._multi_turn_calibration: Dict[str, MultiTurnCalibration] = {}
+        self._multi_turn_runtime_mode: Optional[str] = None
+        self._allow_uncalibrated_multiturn = bool(allow_uncalibrated_multiturn)
 
     def __enter__(self) -> "SoArmMoceController":
         return self
@@ -347,6 +409,8 @@ class SoArmMoceController:
                 pass
         self._bus = None
         self._multi_turn_state = {}
+        self._multi_turn_calibration = {}
+        self._multi_turn_runtime_mode = None
 
     def meta(self) -> Dict[str, Any]:
         return {
@@ -370,6 +434,7 @@ class SoArmMoceController:
         pose.pop("rot_matrix", None)
         return {
             "joint_state": joints,
+            "multi_turn_state": self._snapshot_multi_turn_state(),
             "tcp_pose": pose,
             "gripper": {
                 "available": False,
@@ -699,11 +764,14 @@ class SoArmMoceController:
             if self._bus is not None:
                 return self._bus
 
-            calib = _load_calibration(self.config.robot_id, self.config.calib_dir)
-            for name in MULTI_TURN_JOINTS:
-                if name in calib:
-                    calib[name].range_min = -MULTI_TURN_RAW_RANGE
-                    calib[name].range_max = MULTI_TURN_RAW_RANGE
+            calib_payload = _load_calibration_payload(self.config.robot_id, self.config.calib_dir)
+            calib = _build_bus_calibration(calib_payload)
+            try:
+                self._multi_turn_calibration = _load_multi_turn_calibration(calib_payload)
+            except ValidationError:
+                if not self._allow_uncalibrated_multiturn:
+                    raise
+                self._multi_turn_calibration = {}
 
             bus = FeetechMotorsBus(
                 port=self.config.port,
@@ -724,25 +792,25 @@ class SoArmMoceController:
             with bus.torque_disabled():
                 bus.configure_motors()
                 for name in JOINTS:
-                    if name in MULTI_TURN_JOINTS:
-                        bus.write("Lock", name, 0)
-                        time.sleep(0.02)
-                        bus.write("Min_Position_Limit", name, 0)
-                        bus.write("Max_Position_Limit", name, 0)
-                        bus.write("Operating_Mode", name, 3)
-                        time.sleep(0.02)
-                        bus.write("Lock", name, 1)
-                    else:
+                    if name not in MULTI_TURN_JOINTS:
                         bus.write("Operating_Mode", name, OperatingMode.POSITION.value)
                         bus.write("P_Coefficient", name, self.config.arm_p_coefficient)
                         bus.write("I_Coefficient", name, 0)
                         bus.write("D_Coefficient", name, self.config.arm_d_coefficient)
 
             bus.enable_torque()
-            current_joint_deg = self._read_joint_state_from_bus(bus)
-            hold_cmd = self._build_bus_command(current_joint_deg, current_joint_deg=current_joint_deg)
-            if hold_cmd:
-                bus.sync_write("Goal_Position", hold_cmd)
+            self._multi_turn_runtime_mode = None
+            if self._multi_turn_calibration:
+                self._ensure_multi_turn_read_mode(bus)
+                current_joint_deg = self._read_joint_state_from_bus(bus)
+                hold_cmd = self._build_bus_command(current_joint_deg, current_joint_deg=current_joint_deg)
+                if hold_cmd:
+                    bus.sync_write("Goal_Position", hold_cmd)
+            elif not self._allow_uncalibrated_multiturn:
+                missing = ", ".join(MULTI_TURN_JOINTS)
+                raise ValidationError(
+                    "Multi-turn calibration is missing. Re-run calibration for: " + missing
+                )
             self._bus = bus
             return bus
 
@@ -897,12 +965,79 @@ class SoArmMoceController:
     def _joint_to_motor_deg(self, joint_name: str, joint_deg: float) -> float:
         return float(joint_deg) * self._joint_scale(joint_name)
 
+    def _set_multi_turn_runtime_mode(self, bus: FeetechMotorsBus, target_mode: str) -> None:
+        target = str(target_mode).strip().lower()
+        if target not in {MULTI_TURN_READ_MODE, MULTI_TURN_STEP_MODE}:
+            raise ValidationError(f"Unsupported multi-turn runtime mode: {target_mode}")
+        motors = [name for name in MULTI_TURN_JOINTS if name in bus.motors]
+        if not motors:
+            self._multi_turn_runtime_mode = target
+            return
+        if self._multi_turn_runtime_mode == target:
+            return
+
+        with bus.torque_disabled(motors):
+            for name in motors:
+                bus.write("Lock", name, 0, normalize=False)
+                time.sleep(0.02)
+                bus.write("Homing_Offset", name, 0, normalize=False)
+                if target == MULTI_TURN_READ_MODE:
+                    model = bus.motors[name].model
+                    max_res = int(bus.model_resolution_table[model] - 1)
+                    bus.write("Min_Position_Limit", name, 0, normalize=False)
+                    bus.write("Max_Position_Limit", name, max_res, normalize=False)
+                    bus.write("Operating_Mode", name, OperatingMode.POSITION.value, normalize=False)
+                    time.sleep(0.02)
+                    current_raw = int(bus.read("Present_Position", name, normalize=False))
+                    bus.write("Goal_Position", name, current_raw, normalize=False)
+                else:
+                    bus.write("Min_Position_Limit", name, 0, normalize=False)
+                    bus.write("Max_Position_Limit", name, 0, normalize=False)
+                    bus.write("Operating_Mode", name, OperatingMode.STEP.value, normalize=False)
+                    time.sleep(0.02)
+                    bus.write("Goal_Position", name, 0, normalize=False)
+                bus.write("Lock", name, 1, normalize=False)
+
+        self._multi_turn_runtime_mode = target
+
+    def _ensure_multi_turn_read_mode(self, bus: FeetechMotorsBus) -> None:
+        self._set_multi_turn_runtime_mode(bus, MULTI_TURN_READ_MODE)
+
+    def _ensure_multi_turn_step_mode(self, bus: FeetechMotorsBus) -> None:
+        self._set_multi_turn_runtime_mode(bus, MULTI_TURN_STEP_MODE)
+
+    def _require_multi_turn_calibration(self, joint_name: str) -> MultiTurnCalibration:
+        calibration = self._multi_turn_calibration.get(joint_name)
+        if calibration is None:
+            raise ValidationError(
+                f"Missing multi-turn calibration for {joint_name}. Re-run multi-turn calibration before using the SDK."
+            )
+        return calibration
+
+    def _anchor_multi_turn_raw(self, joint_name: str, raw_mod: int) -> float:
+        calibration = self._require_multi_turn_calibration(joint_name)
+        raw_mod_int = int(raw_mod) % int(RAW_COUNTS_PER_REV)
+        low = calibration.min_relative_raw + calibration.home_wrapped_raw - raw_mod_int
+        high = calibration.max_relative_raw + calibration.home_wrapped_raw - raw_mod_int
+        k_min = int(math.ceil(float(low) / float(RAW_COUNTS_PER_REV)))
+        k_max = int(math.floor(float(high) / float(RAW_COUNTS_PER_REV)))
+        if k_min > k_max:
+            raise HardwareError(
+                f"Current wrapped raw {raw_mod_int} for {joint_name} cannot be anchored into calibrated "
+                f"relative range [{calibration.min_relative_raw}, {calibration.max_relative_raw}] "
+                f"with home_wrapped_raw={calibration.home_wrapped_raw}"
+            )
+
+        best_k = min(range(k_min, k_max + 1), key=lambda k: abs(raw_mod_int + int(RAW_COUNTS_PER_REV) * k - calibration.home_wrapped_raw))
+        return float(raw_mod_int + int(RAW_COUNTS_PER_REV) * best_k)
+
     def _unwrap_multi_turn_raw(self, joint_name: str, raw_value: float) -> float:
+        calibration = self._require_multi_turn_calibration(joint_name)
         raw_scalar = float(raw_value)
         raw_mod = float(raw_scalar % RAW_COUNTS_PER_REV)
         state = self._multi_turn_state.get(joint_name)
         if state is None:
-            continuous_raw = raw_mod
+            continuous_raw = self._anchor_multi_turn_raw(joint_name, int(round(raw_mod)))
         else:
             last_raw_mod = float(state["last_raw_mod"])
             last_continuous_raw = float(state["continuous_raw"])
@@ -912,31 +1047,42 @@ class SoArmMoceController:
             elif delta < -HALF_RAW_COUNTS_PER_REV:
                 delta += RAW_COUNTS_PER_REV
             continuous_raw = last_continuous_raw + delta
+        relative_raw = float(continuous_raw - float(calibration.home_wrapped_raw))
         self._multi_turn_state[joint_name] = {
             "last_raw_mod": raw_mod,
             "continuous_raw": continuous_raw,
+            "relative_raw": relative_raw,
         }
-        return continuous_raw
+        return relative_raw
 
     def _multi_turn_raw_to_joint_deg(self, joint_name: str, raw_value: float) -> float:
-        continuous_raw = self._unwrap_multi_turn_raw(joint_name, raw_value)
-        motor_deg = continuous_raw * 360.0 / RAW_COUNTS_PER_REV
-        return self._motor_to_joint_deg(joint_name, motor_deg)
+        relative_raw = self._unwrap_multi_turn_raw(joint_name, raw_value)
+        motor_deg = relative_raw * 360.0 / RAW_COUNTS_PER_REV
+        return float(self.config.home_joints.get(joint_name, 0.0)) + self._motor_to_joint_deg(joint_name, motor_deg)
 
     def _snapshot_multi_turn_state(self) -> Dict[str, Dict[str, float]]:
         return {
             name: {
                 "last_raw_mod": float(state["last_raw_mod"]),
                 "continuous_raw": float(state["continuous_raw"]),
-                "motor_deg": float(state["continuous_raw"] * 360.0 / RAW_COUNTS_PER_REV),
-                "joint_deg": float(
-                    self._motor_to_joint_deg(name, state["continuous_raw"] * 360.0 / RAW_COUNTS_PER_REV)
+                "relative_raw": float(state["relative_raw"]),
+                "motor_deg_from_home": float(state["relative_raw"] * 360.0 / RAW_COUNTS_PER_REV),
+                "joint_deg_from_home": float(
+                    self._motor_to_joint_deg(name, state["relative_raw"] * 360.0 / RAW_COUNTS_PER_REV)
                 ),
+                "absolute_joint_deg": float(
+                    float(self.config.home_joints.get(name, 0.0))
+                    + self._motor_to_joint_deg(name, state["relative_raw"] * 360.0 / RAW_COUNTS_PER_REV)
+                ),
+                "home_wrapped_raw": float(self._require_multi_turn_calibration(name).home_wrapped_raw),
+                "min_relative_raw": float(self._require_multi_turn_calibration(name).min_relative_raw),
+                "max_relative_raw": float(self._require_multi_turn_calibration(name).max_relative_raw),
             }
             for name, state in self._multi_turn_state.items()
         }
 
     def _read_joint_state_from_bus(self, bus: FeetechMotorsBus) -> Dict[str, float]:
+        self._ensure_multi_turn_read_mode(bus)
         raw_motor = bus.sync_read("Present_Position", normalize=False)
         current_motor = bus.sync_read("Present_Position")
         joints: Dict[str, float] = {}
@@ -950,8 +1096,8 @@ class SoArmMoceController:
     def _get_current_joint_state(self) -> Dict[str, float]:
         return self._read_joint_state_from_bus(self._ensure_bus())
 
-    @staticmethod
-    def _read_raw_present_position(bus: FeetechMotorsBus) -> Dict[str, int]:
+    def _read_raw_present_position(self, bus: FeetechMotorsBus) -> Dict[str, int]:
+        self._ensure_multi_turn_read_mode(bus)
         raw_motor = bus.sync_read("Present_Position", normalize=False)
         return {name: int(raw_motor.get(name, 0)) for name in JOINTS}
 
@@ -1002,6 +1148,8 @@ class SoArmMoceController:
         raw_before = self._read_raw_present_position(bus) if trace_entry is not None else None
         bus_cmd = self._build_bus_command(cmd, current_joint_deg=command_reference_joint_deg)
         if bus_cmd:
+            if any(name in MULTI_TURN_JOINTS for name in bus_cmd):
+                self._ensure_multi_turn_step_mode(bus)
             bus.sync_write("Goal_Position", bus_cmd)
         self._wait(duration, wait, timeout)
         state = self.get_state()
