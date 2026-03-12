@@ -18,6 +18,7 @@ class FaceDetection:
     bbox: tuple[float, float, float, float]
     confidence: float
     landmarks: list[tuple[float, float]] | None = None
+    NOSE_LANDMARK_INDEX = 2
 
     @property
     def x1(self) -> float:
@@ -44,8 +45,15 @@ class FaceDetection:
         return max(0.0, self.y2 - self.y1)
 
     @property
-    def center(self) -> tuple[float, float]:
+    def bbox_center(self) -> tuple[float, float]:
         return (self.x1 + self.width / 2.0, self.y1 + self.height / 2.0)
+
+    @property
+    def center(self) -> tuple[float, float]:
+        if self.landmarks and len(self.landmarks) > self.NOSE_LANDMARK_INDEX:
+            nose = self.landmarks[self.NOSE_LANDMARK_INDEX]
+            return (float(nose[0]), float(nose[1]))
+        return self.bbox_center
 
     @property
     def area(self) -> float:
@@ -57,6 +65,7 @@ class FaceDetection:
         return {
             "bbox": [round(self.x1, 3), round(self.y1, 3), round(self.x2, 3), round(self.y2, 3)],
             "center": [round(self.center[0], 3), round(self.center[1], 3)],
+            "bbox_center": [round(self.bbox_center[0], 3), round(self.bbox_center[1], 3)],
             "size": [round(self.width, 3), round(self.height, 3)],
             "area_ratio": round(self.area / frame_area, 6),
             "confidence": round(float(self.confidence), 6),

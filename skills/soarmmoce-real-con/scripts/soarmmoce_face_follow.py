@@ -9,12 +9,16 @@ import statistics
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from soarmmoce_cli_common import print_error, print_success
 from soarmmoce_sdk import JOINTS, SoArmMoceController, ValidationError
+
+
+SIGN_CACHE_PATH = Path(__file__).resolve().parents[1] / "calibration" / "face_follow_signs.json"
 
 
 def _log(message: str) -> None:
@@ -36,6 +40,122 @@ def _normalize_optional_joint(raw: str | None) -> Optional[str]:
     if value not in JOINTS:
         raise ValidationError(f"Unknown joint: {raw}")
     return value
+
+
+def _normalize_sign_arg(raw: str | float | int | None, flag_name: str) -> Optional[float]:
+    value = str(raw or "").strip().lower()
+    if value in {"", "auto"}:
+        return None
+    if value in {"1", "+1", "positive", "pos"}:
+        return 1.0
+    if value in {"-1", "negative", "neg"}:
+        return -1.0
+    raise ValidationError(f"{flag_name} must be one of: auto, 1, -1")
+
+
+def _load_sign_cache(path: Path = SIGN_CACHE_PATH) -> dict[str, float]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        _warn(f"ignore invalid sign cache: {path}")
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    normalized: dict[str, float] = {}
+    for key, raw_value in payload.items():
+        try:
+            sign = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if sign in {-1.0, 1.0}:
+            normalized[str(key)] = sign
+    return normalized
+
+
+def _save_sign_cache(signs: dict[str, float], path: Path = SIGN_CACHE_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {key: float(value) for key, value in sorted(signs.items()) if float(value) in {-1.0, 1.0}}
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _apply_joint_sign(
+    *,
+    axis: JointAxis | None,
+    axis_key: str,
+    explicit_sign: Optional[float],
+    use_cache: bool,
+    sign_cache: dict[str, float],
+    calibration: list[dict[str, Any]],
+) -> bool:
+    if axis is None:
+        return True
+    if explicit_sign is not None:
+        axis.control_sign = float(explicit_sign)
+        calibration.append(
+            {
+                "joint": axis.joint_name,
+                "metric": axis.metric_key,
+                "control_sign": axis.control_sign,
+                "mode": "manual",
+                "cache_key": axis_key,
+            }
+        )
+        _log(f"axis sign fixed: joint={axis.joint_name} control_sign={axis.control_sign:+.1f}")
+        return True
+    if use_cache and axis_key in sign_cache:
+        axis.control_sign = float(sign_cache[axis_key])
+        calibration.append(
+            {
+                "joint": axis.joint_name,
+                "metric": axis.metric_key,
+                "control_sign": axis.control_sign,
+                "mode": "cache",
+                "cache_key": axis_key,
+            }
+        )
+        _log(f"axis sign cached: joint={axis.joint_name} control_sign={axis.control_sign:+.1f}")
+        return True
+    return False
+
+
+def _apply_cartesian_sign(
+    *,
+    axis: CartesianAxis,
+    axis_key: str,
+    explicit_sign: Optional[float],
+    use_cache: bool,
+    sign_cache: dict[str, float],
+    calibration: list[dict[str, Any]],
+) -> bool:
+    if explicit_sign is not None:
+        axis.effect_sign = float(explicit_sign)
+        calibration.append(
+            {
+                "axis": axis.name,
+                "metric": axis.metric_key,
+                "effect_sign": axis.effect_sign,
+                "mode": "manual",
+                "cache_key": axis_key,
+            }
+        )
+        _log(f"axis sign fixed: axis={axis.name} effect_sign={axis.effect_sign:+.1f}")
+        return True
+    if use_cache and axis_key in sign_cache:
+        axis.effect_sign = float(sign_cache[axis_key])
+        calibration.append(
+            {
+                "axis": axis.name,
+                "metric": axis.metric_key,
+                "effect_sign": axis.effect_sign,
+                "mode": "cache",
+                "cache_key": axis_key,
+            }
+        )
+        _log(f"axis sign cached: axis={axis.name} effect_sign={axis.effect_sign:+.1f}")
+        return True
+    return False
 
 
 def _fetch_json(url: str, timeout_sec: float) -> dict[str, Any]:
@@ -131,7 +251,9 @@ def _extract_face_metric(payload: dict[str, Any], metric_key: str) -> float:
         if "area_ratio" in target_face:
             return float(target_face["area_ratio"])
         raise RuntimeError("Face payload is missing area_ratio")
-    offset = payload.get("smoothed_offset") or payload.get("offset") or {}
+    # Joint direction probing needs the immediate image response.
+    # Using the raw offset first avoids EMA lag flipping the inferred sign.
+    offset = payload.get("offset") or payload.get("smoothed_offset") or {}
     if metric_key not in offset:
         raise RuntimeError(f"Face payload is missing offset metric: {metric_key}")
     return float(offset[metric_key])
@@ -465,20 +587,17 @@ def _select_motion_mode(
     has_cartesian_delta: bool,
     preferred_mode: str,
 ) -> tuple[str | None, str]:
-    preferred = "cartesian" if preferred_mode == "cartesian" else "joint"
-    if has_joint_targets and has_cartesian_delta:
-        next_preferred = "cartesian" if preferred == "joint" else "joint"
-        return preferred, next_preferred
     if has_joint_targets:
-        return "joint", preferred
+        return "joint", "joint"
     if has_cartesian_delta:
-        return "cartesian", preferred
-    return None, preferred
+        return "cartesian", "joint"
+    return None, "joint"
 
 
 def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
-    if args.pan_joint == args.tilt_joint and args.pan_joint is not None:
-        raise ValidationError("pan joint and tilt joint must be different")
+    active_joints = [joint for joint in [args.pan_joint, args.tilt_joint, args.tilt_secondary_joint] if joint is not None]
+    if len(active_joints) != len(set(active_joints)):
+        raise ValidationError("pan/tilt joints must be different")
     if float(args.poll_interval_sec) < 0.0:
         raise ValidationError("--poll-interval-sec must be >= 0")
     if float(args.move_duration_sec) <= 0.0:
@@ -521,6 +640,15 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
         current_joint_deg=float(current_joint_state[args.tilt_joint]) if args.tilt_joint else 0.0,
         range_deg=args.tilt_range_deg,
     )
+    tilt_secondary_axis = _build_axis(
+        joint_name=args.tilt_secondary_joint,
+        metric_key="ndy",
+        gain_deg_per_norm=args.tilt_secondary_gain_deg_per_norm,
+        max_step_deg=args.tilt_secondary_max_step_deg,
+        dead_zone_norm=args.dead_zone_ndy,
+        current_joint_deg=float(current_joint_state[args.tilt_secondary_joint]) if args.tilt_secondary_joint else 0.0,
+        range_deg=args.tilt_secondary_range_deg,
+    )
     lift_axis = CartesianAxis(
         name="lift_z",
         metric_key="ndy",
@@ -544,6 +672,7 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
         if args.depth_target_area_ratio is not None
         else 0.5 * (float(args.depth_min_area_ratio) + float(args.depth_max_area_ratio))
     )
+    sign_cache = {} if args.reprobe_control_signs else _load_sign_cache()
     wait_for_motion = bool(args.wait_for_motion)
     command_interval_sec = (
         float(args.command_interval_sec)
@@ -551,7 +680,7 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
         else max(float(args.move_duration_sec), float(args.poll_interval_sec))
     )
 
-    if pan_axis is None and tilt_axis is None and not args.enable_lift and not args.enable_depth:
+    if pan_axis is None and tilt_axis is None and tilt_secondary_axis is None and not args.enable_lift and not args.enable_depth:
         raise ValidationError("At least one of pan/tilt/lift/depth control axes must be enabled")
 
     calibration: list[dict[str, Any]] = []
@@ -563,10 +692,46 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
         no_face_streak = 0
         last_payload: dict[str, Any] | None = None
         interrupted = False
-        pan_ready = pan_axis is None
-        tilt_ready = tilt_axis is None
-        lift_ready = not args.enable_lift
-        depth_ready = not args.enable_depth
+        pan_ready = _apply_joint_sign(
+            axis=pan_axis,
+            axis_key="pan",
+            explicit_sign=args.pan_control_sign,
+            use_cache=not args.reprobe_control_signs,
+            sign_cache=sign_cache,
+            calibration=calibration,
+        )
+        tilt_ready = _apply_joint_sign(
+            axis=tilt_axis,
+            axis_key="tilt_primary",
+            explicit_sign=args.tilt_control_sign,
+            use_cache=not args.reprobe_control_signs,
+            sign_cache=sign_cache,
+            calibration=calibration,
+        )
+        tilt_secondary_ready = _apply_joint_sign(
+            axis=tilt_secondary_axis,
+            axis_key="tilt_secondary",
+            explicit_sign=args.tilt_secondary_control_sign,
+            use_cache=not args.reprobe_control_signs,
+            sign_cache=sign_cache,
+            calibration=calibration,
+        )
+        lift_ready = (not args.enable_lift) or _apply_cartesian_sign(
+            axis=lift_axis,
+            axis_key="lift",
+            explicit_sign=args.lift_effect_sign,
+            use_cache=not args.reprobe_control_signs,
+            sign_cache=sign_cache,
+            calibration=calibration,
+        )
+        depth_ready = (not args.enable_depth) or _apply_cartesian_sign(
+            axis=depth_axis,
+            axis_key="depth",
+            explicit_sign=args.depth_effect_sign,
+            use_cache=not args.reprobe_control_signs,
+            sign_cache=sign_cache,
+            calibration=calibration,
+        )
         next_motion_at = 0.0
         preferred_motion_mode = "joint"
         search_state = {
@@ -644,26 +809,33 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
                 no_face_streak = 0
 
                 if pan_axis is not None and not pan_ready:
-                    probe_report = _probe_axis_sign(
-                        arm,
-                        client,
-                        pan_axis,
-                        probe_delta_deg=args.probe_delta_deg,
-                        move_duration_sec=args.move_duration_sec,
-                        face_timeout_sec=args.face_timeout_sec,
-                        max_face_staleness_sec=args.max_face_staleness_sec,
-                        min_probe_metric_delta=args.min_probe_metric_delta,
-                    )
-                    calibration.append(probe_report)
-                    current_joint_state = dict(probe_report["revert_joint_state"])
-                    current_state = arm.get_state()
-                    pan_ready = True
-                    _log(
-                        f"axis ready: joint={pan_axis.joint_name}, metric={pan_axis.metric_key}, "
-                        f"control_sign={pan_axis.control_sign:+.1f}, range=[{pan_axis.min_deg:.2f}, {pan_axis.max_deg:.2f}]"
-                    )
-                    payload = client.get_latest()
-                    last_payload = payload
+                    try:
+                        probe_report = _probe_axis_sign(
+                            arm,
+                            client,
+                            pan_axis,
+                            probe_delta_deg=args.probe_delta_deg,
+                            move_duration_sec=args.move_duration_sec,
+                            face_timeout_sec=args.face_timeout_sec,
+                            max_face_staleness_sec=args.max_face_staleness_sec,
+                            min_probe_metric_delta=args.min_probe_metric_delta,
+                        )
+                        calibration.append(probe_report)
+                        current_joint_state = dict(probe_report["revert_joint_state"])
+                        current_state = arm.get_state()
+                        sign_cache["pan"] = float(pan_axis.control_sign)
+                        _save_sign_cache(sign_cache)
+                        pan_ready = True
+                        _log(
+                            f"axis ready: joint={pan_axis.joint_name}, metric={pan_axis.metric_key}, "
+                            f"control_sign={pan_axis.control_sign:+.1f}, range=[{pan_axis.min_deg:.2f}, {pan_axis.max_deg:.2f}]"
+                        )
+                        payload = client.get_latest()
+                        last_payload = payload
+                    except Exception as exc:
+                        _warn(f"disable pan axis ({pan_axis.joint_name}): {exc}")
+                        pan_axis = None
+                        pan_ready = True
 
                 if tilt_axis is not None and not tilt_ready:
                     try:
@@ -680,6 +852,8 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
                         calibration.append(probe_report)
                         current_joint_state = dict(probe_report["revert_joint_state"])
                         current_state = arm.get_state()
+                        sign_cache["tilt_primary"] = float(tilt_axis.control_sign)
+                        _save_sign_cache(sign_cache)
                         tilt_ready = True
                         _log(
                             f"axis ready: joint={tilt_axis.joint_name}, metric={tilt_axis.metric_key}, "
@@ -691,6 +865,36 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
                         _warn(f"disable tilt axis ({tilt_axis.joint_name}): {exc}")
                         tilt_axis = None
                         tilt_ready = True
+
+                if tilt_secondary_axis is not None and not tilt_secondary_ready:
+                    try:
+                        probe_report = _probe_axis_sign(
+                            arm,
+                            client,
+                            tilt_secondary_axis,
+                            probe_delta_deg=args.probe_delta_deg,
+                            move_duration_sec=args.move_duration_sec,
+                            face_timeout_sec=args.face_timeout_sec,
+                            max_face_staleness_sec=args.max_face_staleness_sec,
+                            min_probe_metric_delta=args.min_probe_metric_delta,
+                        )
+                        calibration.append(probe_report)
+                        current_joint_state = dict(probe_report["revert_joint_state"])
+                        current_state = arm.get_state()
+                        sign_cache["tilt_secondary"] = float(tilt_secondary_axis.control_sign)
+                        _save_sign_cache(sign_cache)
+                        tilt_secondary_ready = True
+                        _log(
+                            f"axis ready: joint={tilt_secondary_axis.joint_name}, metric={tilt_secondary_axis.metric_key}, "
+                            f"control_sign={tilt_secondary_axis.control_sign:+.1f}, "
+                            f"range=[{tilt_secondary_axis.min_deg:.2f}, {tilt_secondary_axis.max_deg:.2f}]"
+                        )
+                        payload = client.get_latest()
+                        last_payload = payload
+                    except Exception as exc:
+                        _warn(f"disable secondary tilt axis ({tilt_secondary_axis.joint_name}): {exc}")
+                        tilt_secondary_axis = None
+                        tilt_secondary_ready = True
 
                 if args.enable_lift and not lift_ready:
                     try:
@@ -707,6 +911,8 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
                         calibration.append(probe_report)
                         current_state = dict(probe_report["revert_state"])
                         current_joint_state = dict(current_state["joint_state"])
+                        sign_cache["lift"] = float(lift_axis.effect_sign)
+                        _save_sign_cache(sign_cache)
                         lift_ready = True
                         _log(
                             f"axis ready: axis={lift_axis.name}, metric={lift_axis.metric_key}, "
@@ -734,6 +940,8 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
                         calibration.append(probe_report)
                         current_state = dict(probe_report["revert_state"])
                         current_joint_state = dict(current_state["joint_state"])
+                        sign_cache["depth"] = float(depth_axis.effect_sign)
+                        _save_sign_cache(sign_cache)
                         depth_ready = True
                         _log(
                             f"axis ready: axis={depth_axis.name}, metric={depth_axis.metric_key}, "
@@ -766,6 +974,16 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
                     next_target = tilt_axis.compute_next_target(float(current_joint_state[tilt_axis.joint_name]), ndy)
                     if next_target is not None and abs(next_target - float(current_joint_state[tilt_axis.joint_name])) >= args.min_command_deg:
                         targets[tilt_axis.joint_name] = next_target
+                if tilt_secondary_axis is not None:
+                    next_target = tilt_secondary_axis.compute_next_target(
+                        float(current_joint_state[tilt_secondary_axis.joint_name]),
+                        ndy,
+                    )
+                    if (
+                        next_target is not None
+                        and abs(next_target - float(current_joint_state[tilt_secondary_axis.joint_name])) >= args.min_command_deg
+                    ):
+                        targets[tilt_secondary_axis.joint_name] = next_target
 
                 delta_dx = 0.0
                 delta_dz = 0.0
@@ -909,6 +1127,18 @@ def run_face_follow(args: argparse.Namespace) -> dict[str, Any]:
                     "min_deg": tilt_axis.min_deg,
                     "max_deg": tilt_axis.max_deg,
                 },
+                "tilt_secondary": None
+                if tilt_secondary_axis is None
+                else {
+                    "joint": tilt_secondary_axis.joint_name,
+                    "metric": tilt_secondary_axis.metric_key,
+                    "control_sign": tilt_secondary_axis.control_sign,
+                    "dead_zone_norm": tilt_secondary_axis.dead_zone_norm,
+                    "gain_deg_per_norm": tilt_secondary_axis.gain_deg_per_norm,
+                    "max_step_deg": tilt_secondary_axis.max_step_deg,
+                    "min_deg": tilt_secondary_axis.min_deg,
+                    "max_deg": tilt_secondary_axis.max_deg,
+                },
                 "lift": None
                 if not args.enable_lift
                 else {
@@ -954,19 +1184,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-probe-metric-delta", type=float, default=0.005)
     parser.add_argument("--probe-delta-deg", type=float, default=1.5)
     parser.add_argument("--probe-failure-policy", default="skip-optional", help="strict | disable-axis | skip-optional")
+    parser.add_argument("--reprobe-control-signs", action="store_true", help="Ignore cached face-follow signs and probe again")
+    parser.add_argument("--pan-control-sign", default="1", help="auto | 1 | -1")
+    parser.add_argument("--tilt-control-sign", default="1", help="auto | 1 | -1")
+    parser.add_argument("--tilt-secondary-control-sign", default="-1", help="auto | 1 | -1")
+    parser.add_argument("--lift-effect-sign", default="auto", help="auto | 1 | -1")
+    parser.add_argument("--depth-effect-sign", default="auto", help="auto | 1 | -1")
     parser.add_argument("--pan-joint", default="shoulder_pan", choices=JOINTS)
-    parser.add_argument("--tilt-joint", default="none", help="Joint name or 'none' to disable tilt axis")
+    parser.add_argument("--tilt-joint", default="shoulder_lift", help="Primary vertical joint or 'none' to disable")
+    parser.add_argument("--tilt-secondary-joint", default="elbow_flex", help="Secondary vertical joint or 'none' to disable")
     parser.add_argument("--pan-range-deg", type=float, default=18.0, help="Allowed pan motion around startup pose")
-    parser.add_argument("--tilt-range-deg", type=float, default=10.0, help="Allowed tilt motion around startup pose")
+    parser.add_argument("--tilt-range-deg", type=float, default=18.0, help="Allowed primary vertical motion around startup pose")
+    parser.add_argument("--tilt-secondary-range-deg", type=float, default=18.0, help="Allowed secondary vertical motion around startup pose")
     parser.add_argument("--pan-gain-deg-per-norm", type=float, default=10.0)
-    parser.add_argument("--tilt-gain-deg-per-norm", type=float, default=7.0)
+    parser.add_argument("--tilt-gain-deg-per-norm", type=float, default=4.5)
+    parser.add_argument("--tilt-secondary-gain-deg-per-norm", type=float, default=3.5)
     parser.add_argument("--pan-max-step-deg", type=float, default=2.4)
-    parser.add_argument("--tilt-max-step-deg", type=float, default=1.8)
+    parser.add_argument("--tilt-max-step-deg", type=float, default=1.2)
+    parser.add_argument("--tilt-secondary-max-step-deg", type=float, default=1.0)
     parser.add_argument("--dead-zone-ndx", type=float, default=0.06)
-    parser.add_argument("--dead-zone-ndy", type=float, default=0.08)
+    parser.add_argument("--dead-zone-ndy", type=float, default=0.12)
     parser.add_argument("--min-command-deg", type=float, default=0.12)
-    parser.add_argument("--enable-lift", type=lambda raw: str(raw).strip().lower() not in {"0", "false", "no"}, default=True)
-    parser.add_argument("--enable-depth", type=lambda raw: str(raw).strip().lower() not in {"0", "false", "no"}, default=True)
+    parser.add_argument("--enable-lift", type=lambda raw: str(raw).strip().lower() not in {"0", "false", "no"}, default=False)
+    parser.add_argument("--enable-depth", type=lambda raw: str(raw).strip().lower() not in {"0", "false", "no"}, default=False)
     parser.add_argument("--lift-range-m", type=float, default=0.03)
     parser.add_argument("--depth-range-m", type=float, default=0.04)
     parser.add_argument("--lift-gain-m-per-norm", type=float, default=0.028)
@@ -1001,6 +1241,15 @@ def main() -> None:
     args = parser.parse_args()
     try:
         args.tilt_joint = _normalize_optional_joint(args.tilt_joint)
+        args.tilt_secondary_joint = _normalize_optional_joint(args.tilt_secondary_joint)
+        args.pan_control_sign = _normalize_sign_arg(args.pan_control_sign, "--pan-control-sign")
+        args.tilt_control_sign = _normalize_sign_arg(args.tilt_control_sign, "--tilt-control-sign")
+        args.tilt_secondary_control_sign = _normalize_sign_arg(
+            args.tilt_secondary_control_sign,
+            "--tilt-secondary-control-sign",
+        )
+        args.lift_effect_sign = _normalize_sign_arg(args.lift_effect_sign, "--lift-effect-sign")
+        args.depth_effect_sign = _normalize_sign_arg(args.depth_effect_sign, "--depth-effect-sign")
         args.probe_failure_policy = _normalize_probe_policy(args.probe_failure_policy)
         print_success(run_face_follow(args))
     except KeyboardInterrupt as exc:

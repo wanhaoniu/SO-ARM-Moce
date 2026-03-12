@@ -105,12 +105,15 @@ python3 ~/.openclaw/skills/soarmmoce-real-con/scripts/soarmmoce_face_follow.py -
 当前默认行为：
 
 - `shoulder_pan` 做水平居中
-- `base z` 小步笛卡尔移动做上下修正
-- `base x` 小步笛卡尔移动做前后修正
+- `shoulder_lift + elbow_flex` 做垂直居中
+- 默认先只做画面内 `x/y` 居中，不主动做前后距离修正
+- 当前默认方向符号固定为最近一次验证通过的组合：`pan=+1`、`tilt_primary=+1`、`tilt_secondary=-1`
 - 丢失人脸时不报错，改为自动左右扫描寻找人脸
 - 脚本会持续运行，直到你手动 `Ctrl+C` 停止
 
-如果你还想额外尝试关节级上下联动，再显式加 `--tilt-joint wrist_flex`。
+如果你还想额外叠加整体升降修正，再显式加 `--enable-lift true`。
+如果你只想保留单个垂直关节，可以显式加 `--tilt-secondary-joint none`。
+如果你还想恢复前后距离跟随，再显式加 `--enable-depth true`。
 
 ## SDK 直接调用
 
