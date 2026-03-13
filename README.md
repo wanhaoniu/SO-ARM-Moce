@@ -1,4 +1,4 @@
-# SOARM-Moce 🤖
+# MomoClaw 🤖
 > An enhanced robotic arm based on SOARM101: higher payload, larger workspace, and the same control workflow and precision experience  
 
 <p align="center">
@@ -15,13 +15,13 @@
 
 [English](README.md) | [中文](README_ZH.md)
 
-![SOARM-Moce Model Overview](images/1.JPG)
+![MomoClaw Model Overview](images/1.JPG)
 <!-- TODO: Replace with your "model overview" image path, e.g. docs/media/overview.jpg -->
 
 ---
 
 ## 1. Project Overview
-**SOARM-Moce** is our enhanced version built on top of **SOARM101**. While keeping the same **5-DOF architecture** and **Python + ROS control workflow**, we reinforce key joints with **metal reduction modules** to significantly improve payload capacity and structural stiffness, while also expanding workspace coverage.
+**MomoClaw** is our enhanced version built on top of **SOARM101**. While keeping the same **5-DOF architecture** and **Python + ROS control workflow**, we reinforce key joints with **metal reduction modules** to significantly improve payload capacity and structural stiffness, while also expanding workspace coverage.
 
 ### Development Motivation
 We initially set out to create an **affordable, portable robotic arm** for our "mystery robot" project but found no existing products on the market that met our requirements. Therefore, **MoceAI**, with support from servo supplier **Feetech**, collaborated to develop and release this open-source robotic arm.
@@ -38,8 +38,8 @@ This project is designed for:
 ![Model Overview](images/4.JPG)
 <!-- TODO: Model overview image -->
 
-### 2.2 SOARM101 vs SOARM-Moce Comparison
-![SOARM101 vs SOARM-Moce Comparison](images/3.JPG)
+### 2.2 SOARM101 vs MomoClaw Comparison
+![SOARM101 vs MomoClaw Comparison](images/3.JPG)
 <!-- TODO: Comparison image (recommended: payload/workspace/structural reinforcement points) -->
 
 ### 2.3 Core Module Close-up (Metal Reduction Module on Key Joint)
@@ -57,12 +57,12 @@ This project is designed for:
 
 ---
 
-## 4. Core Metrics Comparison (SOARM101 vs SOARM-Moce)
+## 4. Core Metrics Comparison (SOARM101 vs MomoClaw)
 > The following data is summarized from project comparison materials: payload values come from experiments, workspace-related values come from URDF simulation results.
 
-| Metric | SOARM101 | SOARM-Moce | Change |
+| Metric | SOARM101 | MomoClaw | Change |
 |---|---:|---:|---:|
-| Rated max payload (kg) | 0.3 | 1.5 | **3x** increase |
+| Rated max payload (kg) | 0.3 | 1.5 | **5x** increase |
 | Limit payload (kg) | – | 2.0 | Higher payload headroom |
 | Repeatability (mm) | 1.0 | 1.0 | Unchanged |
 | Max horizontal reach Rmax (mm) | 380.6 | 433.1 | +13.8% |
